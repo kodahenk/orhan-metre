@@ -1,7 +1,14 @@
 import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 
-import { ALARM_WINDOW_MS, WORK_PHASES, phaseDurationMs } from './phases';
+import {
+  ALARM_REPEAT_EVERY_MS,
+  MAX_SCHEDULED_PER_BOUNDARY,
+  partAlarmMs,
+  partDurationMs,
+  totalMinutes,
+  type Part,
+} from './settings';
 
 // SDK 53'ten beri expo-notifications, Android Expo Go'da import anında hata
 // fırlatıyor. Bu yüzden modül statik değil koşullu yükleniyor: Expo Go'da
@@ -17,10 +24,10 @@ const Notifications: NotificationsModule | null = supported
 
 export const notificationsSupported = supported;
 
-const CHANNEL_ID = 'faz-alarm';
-
-// 5 sn'lik alarm penceresi boyunca ~1.5 sn arayla bildirim.
-const ALARM_REPEAT_OFFSETS_MS = [0, 1_500, 3_000, ALARM_WINDOW_MS - 500];
+// Android kanal ayarları (ses dahil) oluşturulduktan sonra değiştirilemez;
+// hatalı sesle oluşmuş eski 'faz-alarm' kanalı yerine yeni kimlik kullanılıyor.
+const CHANNEL_ID = 'faz-alarm-v2';
+const LEGACY_CHANNEL_IDS = ['faz-alarm'];
 
 if (Notifications) {
   // Uygulama öndeyken de bildirim banner'ı görünsün ve ses çalsın.
@@ -37,11 +44,18 @@ if (Notifications) {
 export async function prepareNotifications(): Promise<boolean> {
   if (!Notifications) return false;
   // Android 13+: izin istemi kanal oluşturulmadan görünmez → önce kanal.
+  // Not: `sound` alanı verilmezse sistem varsayılan bildirim sesi kullanılır;
+  // string verilirse ('default' dahil) özel ses DOSYASI olarak aranır ve
+  // bulunamayınca hata basar (SDK 57 davranışı).
   if (Platform.OS === 'android') {
+    await Promise.all(
+      LEGACY_CHANNEL_IDS.map((id) =>
+        Notifications!.deleteNotificationChannelAsync(id).catch(() => {}),
+      ),
+    );
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-      name: 'Faz alarmları',
+      name: 'Part alarmları',
       importance: Notifications.AndroidImportance.MAX,
-      sound: 'default',
       vibrationPattern: [0, 600, 250, 600],
     });
   }
@@ -56,32 +70,42 @@ export function addNotificationTapListener(onTap: () => void): () => void {
   return () => sub.remove();
 }
 
-function boundaryContent(phaseIndex: number) {
-  const finished = WORK_PHASES[phaseIndex];
-  const next = WORK_PHASES[phaseIndex + 1];
+function boundaryContent(parts: Part[], boundaryIndex: number, autoAdvance: boolean) {
+  const finished = parts[boundaryIndex];
+  const next = parts[boundaryIndex + 1];
   if (next) {
     return {
       title: `${finished.label} bitti`,
-      body: `Sıradaki: ${next.label} · ${next.minutes} dk`,
+      body: autoAdvance
+        ? `Sıradaki: ${next.label} · ${next.minutes} dk`
+        : `Sıradaki: ${next.label} · ${next.minutes} dk — başlatmak için Devam'a bas`,
       sound: 'default' as const,
     };
   }
   return {
     title: 'Çalışma tamamlandı 🎉',
-    body: 'Bir saatlik seans bitti.',
+    body: `${totalMinutes(parts)} dakikalık seans bitti.`,
     sound: 'default' as const,
   };
 }
 
-/** Faz sonu (sınır) index'i → o sınır için zamanlanmış bildirim id'leri. */
+/** Part sonu (sınır) index'i → o sınır için zamanlanmış bildirim id'leri. */
 export type ScheduledAlarms = Map<number, string[]>;
 
 /**
- * Mevcut fazdan seans sonuna kadar tüm faz sınırları için bildirimleri zamanlar.
- * Uygulama arka plandayken/ekran kilitliyken de alarm bu sayede çalar.
- * Tek tek zamanlamalar başarısız olabilir; başaranlar yine de takip edilir.
+ * Part sonu bildirimlerini zamanlar; uygulama arka plandayken/ekran
+ * kilitliyken alarm bu sayede çalar.
+ *
+ * Otomatik geçiş modunda mevcut parttan seans sonuna kadar TÜM sınırlar
+ * deterministik olduğu için hepsi zamanlanır (part araları alarm süresi kadar
+ * boşluk bırakır). Manuel modda sonraki partların başlangıcı bilinemeyeceği
+ * için yalnızca mevcut partın sonu zamanlanır; "Devam" denince sonraki için
+ * tekrar çağrılır. Tek tek zamanlamalar başarısız olabilir; başaranlar yine de
+ * takip edilir.
  */
 export async function scheduleSessionAlarms(
+  parts: Part[],
+  autoAdvance: boolean,
   startPhaseIndex: number,
   currentPhaseEndsAt: number,
 ): Promise<ScheduledAlarms> {
@@ -89,19 +113,27 @@ export async function scheduleSessionAlarms(
   if (!Notifications) return scheduled;
   const api = Notifications;
 
+  const lastBoundary = autoAdvance ? parts.length - 1 : startPhaseIndex;
   let boundary = currentPhaseEndsAt;
-  for (let i = startPhaseIndex; i < WORK_PHASES.length; i++) {
-    if (i > startPhaseIndex) boundary += phaseDurationMs(WORK_PHASES[i]);
-    const content = boundaryContent(i);
+  for (let i = startPhaseIndex; i <= lastBoundary; i++) {
+    if (i > startPhaseIndex) {
+      // Önceki sınır + önceki partın alarm boşluğu + bu partın süresi.
+      boundary += partAlarmMs(parts[i - 1]) + partDurationMs(parts[i]);
+    }
+    const content = boundaryContent(parts, i, autoAdvance);
+    const count = Math.min(
+      MAX_SCHEDULED_PER_BOUNDARY,
+      Math.max(1, Math.floor(partAlarmMs(parts[i]) / ALARM_REPEAT_EVERY_MS)),
+    );
     const at = boundary;
     const ids = await Promise.all(
-      ALARM_REPEAT_OFFSETS_MS.map((offset) =>
+      Array.from({ length: count }, (_, k) =>
         api
           .scheduleNotificationAsync({
             content,
             trigger: {
               type: api.SchedulableTriggerInputTypes.DATE,
-              date: at + offset,
+              date: at + k * ALARM_REPEAT_EVERY_MS,
               channelId: CHANNEL_ID,
             },
           })

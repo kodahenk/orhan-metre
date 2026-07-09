@@ -1,19 +1,25 @@
-import { NavigationBar } from 'expo-navigation-bar';
 import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform } from 'react-native';
+
+import { SettingsProvider } from '@/features/timer/settings-context';
+import { TimerProvider } from '@/features/timer/timer-context';
 
 export default function RootLayout() {
   return (
-    <ThemeProvider value={DarkTheme}>
-      <StatusBar hidden />
-      {Platform.OS === 'android' && <NavigationBar hidden />}
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: '#000000' },
-        }}
-      />
-    </ThemeProvider>
+    <SettingsProvider>
+      <TimerProvider>
+        <ThemeProvider value={DarkTheme}>
+          {/* Normal ekranlarda sistem çubukları görünür (açık stil);
+              zamanlayıcı ekranı odaktayken kendisi gizler. */}
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: '#000000' },
+            }}
+          />
+        </ThemeProvider>
+      </TimerProvider>
+    </SettingsProvider>
   );
 }

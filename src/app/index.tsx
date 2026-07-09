@@ -1,150 +1,165 @@
-import { useCallback, useEffect, useState } from 'react';
 import {
-  Animated,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  useAnimatedValue,
-  View,
-} from 'react-native';
+  RobotoMono_200ExtraLight,
+  RobotoMono_300Light,
+  RobotoMono_500Medium,
+} from '@expo-google-fonts/roboto-mono';
+import { Feather } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
+import { useRouter } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { WORK_PHASES } from '@/features/timer/phases';
-import { useWorkTimer } from '@/features/timer/use-work-timer';
+import { totalMinutes } from '@/features/timer/settings';
+import { useTimer } from '@/features/timer/timer-context';
 
-// Sayaç çalışırken arayüz (faz adı, butonlar) bu süre sonunda kaybolur;
-// ekrana dokununca geri gelir ve tekrar bu süre sonunda gizlenir.
-const CHROME_HIDE_DELAY_MS = 3_000;
+const UI_FONT = 'RobotoMono_300Light';
+const STRONG_FONT = 'RobotoMono_500Medium';
 
-function formatTime(totalSeconds: number) {
-  const mm = Math.floor(totalSeconds / 60);
-  const ss = totalSeconds % 60;
-  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-}
+const STATUS_TEXT: Record<string, string> = {
+  running: 'Oturum sürüyor',
+  between: 'Part arası bekleme',
+  paused: 'Duraklatıldı',
+  done: 'Tamamlandı',
+};
 
-export default function TimerScreen() {
-  const timer = useWorkTimer();
-  const running = timer.status === 'running';
+export default function HomeScreen() {
+  const [fontsLoaded] = useFonts({
+    RobotoMono_200ExtraLight,
+    RobotoMono_300Light,
+    RobotoMono_500Medium,
+  });
+  const router = useRouter();
+  const timer = useTimer();
 
-  const [chromeVisible, setChromeVisible] = useState(true);
-  const [revealNonce, setRevealNonce] = useState(0);
-  // useRef(new Animated.Value()).current render sırasında ref okuduğu için
-  // React Compiler tüm bileşeni optimizasyon dışı bırakıyordu.
-  const chromeOpacity = useAnimatedValue(1);
+  if (!fontsLoaded) {
+    return <View style={styles.screen} />;
+  }
 
-  useEffect(() => {
-    Animated.timing(chromeOpacity, {
-      toValue: chromeVisible ? 1 : 0,
-      duration: 250,
-      useNativeDriver: true,
-    }).start();
-  }, [chromeVisible, chromeOpacity]);
+  const sessionActive = timer.status !== 'idle';
+  const parts = timer.parts;
 
-  // Çalışırken 3 sn hareketsizlik sonrası arayüzü gizle.
-  useEffect(() => {
-    if (!running || !chromeVisible) return;
-    const id = setTimeout(() => setChromeVisible(false), CHROME_HIDE_DELAY_MS);
-    return () => clearTimeout(id);
-  }, [running, chromeVisible, revealNonce]);
-
-  // Sayaç durunca ve faz değişince arayüz görünür olsun.
-  useEffect(() => {
-    if (!running) setChromeVisible(true);
-  }, [running]);
-  useEffect(() => {
-    if (timer.phaseIndex > 0) {
-      setChromeVisible(true);
-      setRevealNonce((n) => n + 1);
-    }
-  }, [timer.phaseIndex]);
-
-  const onScreenPress = useCallback(() => {
-    if (timer.alarmActive) {
-      timer.acknowledgeAlarm();
-    }
-    if (running) {
-      setChromeVisible(true);
-      setRevealNonce((n) => n + 1);
-    }
-  }, [timer.alarmActive, timer.acknowledgeAlarm, running]);
-
-  const phase = WORK_PHASES[timer.phaseIndex];
+  const onPrimary = () => {
+    if (!sessionActive) timer.start();
+    router.push('/timer');
+  };
 
   return (
-    <Pressable style={styles.screen} onPress={onScreenPress} android_disableSound>
-      <Animated.View
-        style={[styles.chrome, { opacity: chromeOpacity }]}
-        pointerEvents={chromeVisible ? 'auto' : 'none'}
-      >
-        <Text style={styles.phaseLabel} maxFontSizeMultiplier={1.3}>
-          {timer.status === 'done' ? 'Tamamlandı 🎉' : phase.label}
-        </Text>
-        <View style={styles.dots}>
-          {WORK_PHASES.map((p, i) => (
-            <View
-              key={p.key}
-              style={[
-                styles.dot,
-                i < timer.phaseIndex && styles.dotPast,
-                i === timer.phaseIndex && timer.status !== 'idle' && styles.dotActive,
-              ]}
-            />
-          ))}
-        </View>
-      </Animated.View>
-
-      <Text style={styles.time} numberOfLines={1} adjustsFontSizeToFit>
-        {formatTime(timer.secondsLeft)}
-      </Text>
-
-      <Animated.View
-        style={[styles.chrome, { opacity: chromeOpacity }]}
-        pointerEvents={chromeVisible ? 'auto' : 'none'}
-      >
-        {timer.alarmActive && <Text style={styles.hint} maxFontSizeMultiplier={1.3}>Bildirimi durdurmak için dokun</Text>}
-
-        {timer.status === 'idle' && (
-          <>
-            <Text style={styles.model} maxFontSizeMultiplier={1.3}>
-              {WORK_PHASES.map((p) => `${p.label} ${p.minutes}dk`).join('  ·  ')}
-            </Text>
-            <Pressable style={styles.buttonPrimary} onPress={timer.start}>
-              <Text style={styles.buttonPrimaryText} maxFontSizeMultiplier={1.3}>Başlat</Text>
-            </Pressable>
-          </>
-        )}
-
-        {/* Alarm çalarken butonlar gizli: her dokunuş yalnızca alarmı susturur,
-            aceleyle Sıfırla'ya basılıp seans kaybedilmez. */}
-        {running && !timer.alarmActive && (
-          <View style={styles.buttonRow}>
-            <Pressable style={styles.button} onPress={timer.pause}>
-              <Text style={styles.buttonText} maxFontSizeMultiplier={1.3}>Duraklat</Text>
-            </Pressable>
-            <Pressable style={styles.button} onPress={timer.reset}>
-              <Text style={styles.buttonText} maxFontSizeMultiplier={1.3}>Sıfırla</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {timer.status === 'paused' && (
-          <View style={styles.buttonRow}>
-            <Pressable style={styles.buttonPrimary} onPress={timer.resume}>
-              <Text style={styles.buttonPrimaryText} maxFontSizeMultiplier={1.3}>Devam</Text>
-            </Pressable>
-            <Pressable style={styles.button} onPress={timer.reset}>
-              <Text style={styles.buttonText} maxFontSizeMultiplier={1.3}>Sıfırla</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {timer.status === 'done' && !timer.alarmActive && (
-          <Pressable style={styles.buttonPrimary} onPress={timer.reset}>
-            <Text style={styles.buttonPrimaryText} maxFontSizeMultiplier={1.3}>Yeniden Başlat</Text>
+    <View style={styles.screen}>
+      <SafeAreaView style={styles.safeArea}>
+        {/* Üst bar */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle} maxFontSizeMultiplier={1.3}>
+            Orhan Metre
+          </Text>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            hitSlop={12}
+            style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}
+          >
+            <Feather name="settings" size={20} color="#8A8F98" />
           </Pressable>
-        )}
-      </Animated.View>
-    </Pressable>
+        </View>
+
+        <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+          {/* Plan özeti */}
+          <View style={styles.hero}>
+            <Text style={styles.heroTotal} maxFontSizeMultiplier={1.2}>
+              {totalMinutes(parts)}
+              <Text style={styles.heroUnit}> dk</Text>
+            </Text>
+            <View style={styles.heroMeta}>
+              <View style={styles.chip}>
+                <Feather
+                  name={timer.autoAdvance ? 'fast-forward' : 'play-circle'}
+                  size={12}
+                  color="#8A8F98"
+                />
+                <Text style={styles.chipText} maxFontSizeMultiplier={1.3}>
+                  {timer.autoAdvance ? 'Otomatik geçiş' : 'Manuel geçiş'}
+                </Text>
+              </View>
+              <View style={styles.chip}>
+                <Feather name="layers" size={12} color="#8A8F98" />
+                <Text style={styles.chipText} maxFontSizeMultiplier={1.3}>
+                  {parts.length} part
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Part listesi */}
+          <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.3}>
+            Plan
+          </Text>
+          {parts.map((part, i) => {
+            const isCurrent = sessionActive && i === timer.phaseIndex;
+            const isDone =
+              sessionActive &&
+              (i < timer.phaseIndex || (timer.status === 'done' && i <= timer.phaseIndex));
+            return (
+              <View key={part.id} style={[styles.partRow, isCurrent && styles.partRowActive]}>
+                <View style={[styles.partBadge, isCurrent && styles.partBadgeActive]}>
+                  {isDone ? (
+                    <Feather name="check" size={14} color="#34D399" />
+                  ) : (
+                    <Text
+                      style={[styles.partBadgeText, isCurrent && styles.partBadgeTextActive]}
+                      maxFontSizeMultiplier={1.2}
+                    >
+                      {i + 1}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.flex}>
+                  <Text
+                    style={[styles.partLabel, isCurrent && styles.partLabelActive]}
+                    maxFontSizeMultiplier={1.3}
+                  >
+                    {part.label}
+                  </Text>
+                  <Text style={styles.partMeta} maxFontSizeMultiplier={1.3}>
+                    {part.minutes} dk · alarm {part.alarmSeconds} sn
+                  </Text>
+                </View>
+                <Text style={styles.partDuration} maxFontSizeMultiplier={1.2}>
+                  {part.minutes}′
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        {/* Alt eylem çubuğu */}
+        <View style={styles.bottomBar}>
+          {sessionActive && (
+            <View style={styles.sessionBanner}>
+              <View style={styles.sessionPulse} />
+              <Text style={styles.sessionText} maxFontSizeMultiplier={1.3}>
+                {STATUS_TEXT[timer.status] ?? ''}
+              </Text>
+              <Pressable onPress={timer.reset} hitSlop={10}>
+                <Text style={styles.sessionReset} maxFontSizeMultiplier={1.3}>
+                  Sıfırla
+                </Text>
+              </Pressable>
+            </View>
+          )}
+          <Pressable
+            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            onPress={onPrimary}
+          >
+            <Feather
+              name={sessionActive ? 'clock' : 'play'}
+              size={18}
+              color="#000000"
+            />
+            <Text style={styles.primaryButtonText} maxFontSizeMultiplier={1.2}>
+              {sessionActive ? 'Zamanlayıcıya Dön' : 'Başlat'}
+            </Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -152,82 +167,192 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 28,
   },
-  chrome: {
-    alignItems: 'center',
-    gap: 20,
-    minHeight: 96,
-    justifyContent: 'center',
+  safeArea: {
+    flex: 1,
   },
-  phaseLabel: {
-    color: '#8A8F98',
-    fontSize: 22,
-    letterSpacing: 6,
+  flex: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#111316',
+  },
+  headerTitle: {
+    color: '#E8EAED',
+    fontFamily: STRONG_FONT,
+    fontSize: 15,
+    letterSpacing: 3,
     textTransform: 'uppercase',
   },
-  dots: {
+  headerAction: {
+    width: 40,
+    height: 40,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  content: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    gap: 10,
+    maxWidth: 560,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  hero: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    gap: 12,
+  },
+  heroTotal: {
+    color: '#E8EAED',
+    fontFamily: 'RobotoMono_200ExtraLight',
+    fontSize: 64,
+  },
+  heroUnit: {
+    color: '#5A5F68',
+    fontSize: 24,
+    fontFamily: UI_FONT,
+  },
+  heroMeta: {
     flexDirection: 'row',
     gap: 10,
   },
-  dot: {
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#1C1E22',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  chipText: {
+    color: '#8A8F98',
+    fontFamily: UI_FONT,
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  sectionTitle: {
+    color: '#5A5F68',
+    fontFamily: UI_FONT,
+    fontSize: 12,
+    letterSpacing: 4,
+    textTransform: 'uppercase',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  partRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderWidth: 1,
+    borderColor: '#15171B',
+    backgroundColor: '#0A0B0D',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  partRowActive: {
+    borderColor: '#3A3E45',
+  },
+  partBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#2A2D33',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  partBadgeActive: {
+    borderColor: '#E8EAED',
+  },
+  partBadgeText: {
+    color: '#8A8F98',
+    fontFamily: UI_FONT,
+    fontSize: 13,
+  },
+  partBadgeTextActive: {
+    color: '#E8EAED',
+  },
+  partLabel: {
+    color: '#C9CDD3',
+    fontFamily: STRONG_FONT,
+    fontSize: 15,
+  },
+  partLabelActive: {
+    color: '#FFFFFF',
+  },
+  partMeta: {
+    color: '#5A5F68',
+    fontFamily: UI_FONT,
+    fontSize: 12,
+    marginTop: 3,
+  },
+  partDuration: {
+    color: '#8A8F98',
+    fontFamily: 'RobotoMono_200ExtraLight',
+    fontSize: 24,
+  },
+  bottomBar: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#111316',
+    maxWidth: 560,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  sessionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sessionPulse: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#1C1E22',
+    backgroundColor: '#34D399',
   },
-  dotPast: {
-    backgroundColor: '#4A4F58',
+  sessionText: {
+    color: '#8A8F98',
+    fontFamily: UI_FONT,
+    fontSize: 13,
+    flex: 1,
   },
-  dotActive: {
-    backgroundColor: '#E8EAED',
-  },
-  time: {
-    color: '#E8EAED',
-    fontSize: 104,
-    fontWeight: '200',
-    fontVariant: ['tabular-nums'],
-    fontFamily: Platform.select({ ios: 'ui-rounded', default: 'sans-serif-light' }),
-    paddingHorizontal: 16,
-  },
-  model: {
-    color: '#5A5F68',
-    fontSize: 14,
-  },
-  hint: {
-    color: '#B8860B',
-    fontSize: 14,
+  sessionReset: {
+    color: '#F87171',
+    fontFamily: UI_FONT,
+    fontSize: 13,
     letterSpacing: 1,
   },
-  buttonRow: {
+  primaryButton: {
     flexDirection: 'row',
-    gap: 16,
-  },
-  buttonPrimary: {
-    borderWidth: 1,
-    borderColor: '#E8EAED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#E8EAED',
     borderRadius: 999,
-    paddingHorizontal: 40,
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
-  buttonPrimaryText: {
-    color: '#E8EAED',
-    fontSize: 17,
+  primaryButtonText: {
+    color: '#000000',
+    fontFamily: STRONG_FONT,
+    fontSize: 15,
     letterSpacing: 2,
     textTransform: 'uppercase',
   },
-  button: {
-    borderWidth: 1,
-    borderColor: '#2A2D33',
-    borderRadius: 999,
-    paddingHorizontal: 28,
-    paddingVertical: 12,
-  },
-  buttonText: {
-    color: '#8A8F98',
-    fontSize: 15,
-    letterSpacing: 1,
+  pressed: {
+    opacity: 0.7,
   },
 });

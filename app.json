@@ -3,7 +3,7 @@
     "name": "orhan-metre",
     "slug": "orhan-metre",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "orhanmetre",
     "userInterfaceStyle": "dark",
@@ -23,7 +23,8 @@
         "android.permission.VIBRATE",
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM"
-      ]
+      ],
+      "package": "com.anonymous.orhanmetre"
     },
     "web": {
       "output": "static",
@@ -42,7 +43,6 @@
       [
         "expo-navigation-bar",
         {
-          "hidden": true,
           "style": "dark",
           "enforceContrast": false
         }
@@ -50,11 +50,11 @@
       [
         "expo-status-bar",
         {
-          "hidden": true,
           "style": "light"
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,
