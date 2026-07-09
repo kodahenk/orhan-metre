@@ -256,7 +256,7 @@ export default function SettingsScreen() {
                   styles.previewTime,
                   {
                     color: display.color,
-                    fontSize: { kucuk: 34, orta: 44, buyuk: 54 }[display.size],
+                    fontSize: { kucuk: 26, orta: 34, buyuk: 42 }[display.size],
                   },
                 ]}
                 maxFontSizeMultiplier={1.1}

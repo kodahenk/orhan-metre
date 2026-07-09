@@ -36,6 +36,21 @@ function formatTime(totalSeconds: number) {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
+const MONTHS = [
+  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+];
+const WEEKDAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+
+// "13 Ekim Cumartesi" — sabit Türkçe adlar, cihaz diline bağımlı değil.
+function formatDate(d: Date) {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${WEEKDAYS[d.getDay()]}`;
+}
+
+function formatClock(d: Date) {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 type IconButtonProps = {
   icon: keyof typeof Feather.glyphMap;
   label: string;
@@ -90,12 +105,27 @@ export default function TimerScreen() {
   );
 
   // Rakamlar hem dikeyde hem yatayda taşmadan sığsın: genişlik sınırı
-  // (5 karakter × 0.6em mono) ve dikey bütçe (2 × chrome 96 + boşluklar 48,
-  // satır yüksekliği ≈ 1.32em) birlikte hesaplanır; kullanıcı boyut tercihi
-  // bu sığan üst sınırın yüzdesi olarak uygulanır (asla taşmaz).
-  const fitFontSize = Math.max(48, Math.min(200, width * 0.3, (height - 240) / 1.32));
+  // (5 karakter × 0.6em mono) ve dikey bütçe (2 × chrome 96 + boşluklar 48
+  // + tarih satırı, satır yüksekliği ≈ 1.32em) birlikte hesaplanır; kullanıcı
+  // boyut tercihi bu sığan üst sınırın yüzdesi olarak uygulanır (asla taşmaz).
+  const fitFontSize = Math.max(48, Math.min(200, width * 0.3, (height - 300) / 1.32));
   const timeFontSize = fitFontSize * DISPLAY_SIZE_SCALE[settings.display.size];
+  const clockFontSize = Math.max(18, Math.round(timeFontSize * 0.3));
+  const dateFontSize = Math.max(15, Math.round(timeFontSize * 0.22));
   const timeColor = settings.display.color;
+
+  // Tarih ve saat satırları: 10 sn'de bir tazelenir; değer değişmedikçe
+  // setState render tetiklemez (tarih günde bir, saat dakikada bir değişir).
+  const [dateText, setDateText] = useState(() => formatDate(new Date()));
+  const [clockText, setClockText] = useState(() => formatClock(new Date()));
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = new Date();
+      setDateText(formatDate(now));
+      setClockText(formatClock(now));
+    }, 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   const [chromeVisible, setChromeVisible] = useState(true);
   const [revealNonce, setRevealNonce] = useState(0);
@@ -232,22 +262,41 @@ export default function TimerScreen() {
         </View>
       </Animated.View>
 
-      <Animated.Text
+      {/* Rakamlar + tarih tek grup: soluklaştırma ve piksel kaydırma
+          ikisini birden kapsar. */}
+      <Animated.View
         style={[
-          styles.time,
+          styles.timeGroup,
           {
-            fontSize: timeFontSize,
-            color: timeColor,
             opacity: dimOpacity,
             transform: [{ translateX: shiftX }, { translateY: shiftY }],
           },
         ]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        maxFontSizeMultiplier={1.1}
       >
-        {formatTime(timer.secondsLeft)}
-      </Animated.Text>
+        <Text
+          style={[styles.time, { fontSize: timeFontSize, color: timeColor }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          maxFontSizeMultiplier={1.1}
+        >
+          {formatTime(timer.secondsLeft)}
+        </Text>
+        {/* Güncel saat — zamanlayıcı ile tarih arasında. */}
+        <Text
+          style={[styles.clock, { fontSize: clockFontSize }]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.2}
+        >
+          {clockText}
+        </Text>
+        <Text
+          style={[styles.date, { fontSize: dateFontSize }]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.2}
+        >
+          {dateText}
+        </Text>
+      </Animated.View>
 
       <Animated.View
         style={[styles.chrome, { opacity: chromeOpacity }]}
@@ -358,10 +407,26 @@ const styles = StyleSheet.create({
   dotActive: {
     backgroundColor: '#E8EAED',
   },
+  timeGroup: {
+    alignItems: 'center',
+    gap: 6,
+  },
   time: {
     fontFamily: TIME_FONT,
     fontVariant: ['tabular-nums'],
     paddingHorizontal: 16,
+  },
+  clock: {
+    color: '#B6BBC2',
+    fontFamily: UI_FONT,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 3,
+    marginTop: 4,
+  },
+  date: {
+    color: '#8A8F98',
+    fontFamily: UI_FONT,
+    letterSpacing: 2,
   },
   model: {
     color: '#5A5F68',

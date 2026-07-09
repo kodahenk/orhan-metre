@@ -53,9 +53,9 @@ export const TIMER_COLORS = [
 ] as const;
 
 export const DISPLAY_SIZE_SCALE: Record<TimerDisplaySize, number> = {
-  kucuk: 0.7,
-  orta: 0.85,
-  buyuk: 1,
+  kucuk: 0.45,
+  orta: 0.6,
+  buyuk: 0.75,
 };
 
 export const DISPLAY_SIZE_LABELS: Record<TimerDisplaySize, string> = {
