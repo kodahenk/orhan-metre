@@ -23,7 +23,7 @@ import {
 } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { ScreenHeader } from '@/features/ui/components';
-import { C, F } from '@/features/ui/theme';
+import { F, L, R } from '@/features/ui/theme';
 
 // Sayı alanları yazım sırasında serbest metin tutulur; kaydederken ayrıştırılıp
 // sınırlara oturtulur (settings.sanitizeSettings).
@@ -116,7 +116,7 @@ export default function SettingsScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.3}>
-              Partlar
+              PARTLAR
             </Text>
             <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
               Her partın adı, süresi (dk, {PART_LIMITS.minutes.min}–{PART_LIMITS.minutes.max}) ve
@@ -135,7 +135,7 @@ export default function SettingsScreen() {
                     value={part.label}
                     onChangeText={(t) => updatePart(part.id, { label: t })}
                     placeholder="Part adı"
-                    placeholderTextColor={C.faint}
+                    placeholderTextColor={L.tertiary}
                     maxLength={24}
                   />
                   <Pressable
@@ -147,7 +147,7 @@ export default function SettingsScreen() {
                     <Feather
                       name="trash-2"
                       size={18}
-                      color={parts.length <= 1 ? C.border2 : C.text2}
+                      color={parts.length <= 1 ? L.hairline : L.ink2}
                     />
                   </Pressable>
                 </View>
@@ -181,62 +181,71 @@ export default function SettingsScreen() {
             ))}
 
             <Pressable
-              style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
               onPress={addPart}
             >
-              <Feather name="plus" size={18} color={C.text2} />
+              <Feather name="plus" size={18} color={L.ink2} />
               <Text style={styles.addButtonText} maxFontSizeMultiplier={1.3}>
                 Part Ekle
               </Text>
             </Pressable>
 
             <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-              Part Geçişi
+              PART GEÇİŞİ
             </Text>
-            {[
-              {
-                value: false,
-                title: "Devam'a basınca",
-                desc: 'Part bitince bekler; sonraki part Devam ile başlar.',
-              },
-              {
-                value: true,
-                title: 'Otomatik',
-                desc: 'Alarm süresi dolunca sonraki part kendiliğinden başlar.',
-              },
-            ].map((opt) => (
-              <Pressable
-                key={opt.title}
-                style={[styles.option, autoAdvance === opt.value && styles.optionSelected]}
-                onPress={() => setAutoAdvance(opt.value)}
-              >
-                <Feather
-                  name={autoAdvance === opt.value ? 'check-circle' : 'circle'}
-                  size={18}
-                  color={autoAdvance === opt.value ? C.text : C.faint}
-                />
-                <View style={styles.flex}>
-                  <Text
-                    style={[
-                      styles.optionTitle,
-                      autoAdvance === opt.value && styles.optionTitleSelected,
-                    ]}
-                    maxFontSizeMultiplier={1.3}
-                  >
-                    {opt.title}
-                  </Text>
-                  <Text style={styles.optionDesc} maxFontSizeMultiplier={1.3}>
-                    {opt.desc}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
+            <View style={styles.optionCard}>
+              {[
+                {
+                  value: false,
+                  title: "Devam'a basınca",
+                  desc: 'Part bitince bekler; sonraki part Devam ile başlar.',
+                },
+                {
+                  value: true,
+                  title: 'Otomatik',
+                  desc: 'Alarm süresi dolunca sonraki part kendiliğinden başlar.',
+                },
+              ].map((opt, i) => (
+                <Pressable
+                  key={opt.title}
+                  style={[
+                    styles.option,
+                    i > 0 && styles.rowSeparator,
+                    autoAdvance === opt.value && styles.optionSelected,
+                  ]}
+                  onPress={() => setAutoAdvance(opt.value)}
+                >
+                  <Feather
+                    name={autoAdvance === opt.value ? 'check-circle' : 'circle'}
+                    size={18}
+                    color={autoAdvance === opt.value ? L.accent : L.borderActive}
+                  />
+                  <View style={styles.flex}>
+                    <Text
+                      style={[
+                        styles.optionTitle,
+                        autoAdvance === opt.value && styles.optionTitleSelected,
+                      ]}
+                      maxFontSizeMultiplier={1.3}
+                    >
+                      {opt.title}
+                    </Text>
+                    <Text style={styles.optionDesc} maxFontSizeMultiplier={1.3}>
+                      {opt.desc}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
 
             <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-              Görünüm
+              TAM EKRAN GÖRÜNÜMÜ
+            </Text>
+            <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
+              Boyut ve renk, siyah (AMOLED) tam ekran zamanlayıcıya uygulanır.
             </Text>
 
-            {/* Önizleme */}
+            {/* Önizleme — tam ekran AMOLED'i temsil eder, bilinçli olarak siyah */}
             <View style={styles.previewBox}>
               <Text
                 style={[
@@ -256,17 +265,18 @@ export default function SettingsScreen() {
               Sayaç boyutu
             </Text>
             <View style={styles.segment}>
-              {(Object.keys(DISPLAY_SIZE_LABELS) as TimerDisplaySize[]).map((size) => (
+              {(Object.keys(DISPLAY_SIZE_LABELS) as TimerDisplaySize[]).map((size, i) => (
                 <Pressable
                   key={size}
-                  style={[styles.segmentItem, display.size === size && styles.segmentItemSelected]}
+                  style={[
+                    styles.segmentItem,
+                    i > 0 && styles.segmentDivider,
+                    display.size === size && styles.segmentItemOn,
+                  ]}
                   onPress={() => setDisplay((d) => ({ ...d, size }))}
                 >
                   <Text
-                    style={[
-                      styles.segmentText,
-                      display.size === size && styles.segmentTextSelected,
-                    ]}
+                    style={[styles.segmentText, display.size === size && styles.segmentTextOn]}
                     maxFontSizeMultiplier={1.2}
                   >
                     {DISPLAY_SIZE_LABELS[size]}
@@ -283,14 +293,10 @@ export default function SettingsScreen() {
                 <Pressable
                   key={color}
                   onPress={() => setDisplay((d) => ({ ...d, color }))}
-                  style={[
-                    styles.swatch,
-                    { backgroundColor: color },
-                    display.color === color && styles.swatchSelected,
-                  ]}
+                  style={[styles.swatchWrap, display.color === color && styles.swatchWrapSelected]}
                   hitSlop={6}
                 >
-                  {display.color === color && <Feather name="check" size={14} color="#000000" />}
+                  <View style={[styles.swatch, { backgroundColor: color }]} />
                 </Pressable>
               ))}
             </View>
@@ -299,12 +305,12 @@ export default function SettingsScreen() {
               style={({ pressed }) => [
                 styles.saveButton,
                 savedFlash && styles.saveButtonDone,
-                pressed && styles.pressed,
+                pressed && !savedFlash && styles.saveButtonPressed,
               ]}
               onPress={onSave}
               disabled={saving}
             >
-              <Feather name={savedFlash ? 'check-circle' : 'check'} size={18} color="#000000" />
+              <Feather name={savedFlash ? 'check-circle' : 'check'} size={18} color="#FFFFFF" />
               <Text style={styles.saveButtonText} maxFontSizeMultiplier={1.3}>
                 {savedFlash ? 'Kaydedildi' : 'Kaydet'}
               </Text>
@@ -322,7 +328,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
@@ -331,35 +337,36 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingHorizontal: 20,
-    paddingBottom: 48,
+    paddingHorizontal: 16,
     paddingTop: 16,
+    paddingBottom: 48,
     gap: 12,
     maxWidth: 560,
     width: '100%',
     alignSelf: 'center',
   },
   sectionTitle: {
-    color: C.text,
+    color: L.tertiary,
     fontFamily: F.uiSemi,
-    fontSize: 14,
+    fontSize: 13,
+    letterSpacing: 0.6,
     marginTop: 8,
   },
   sectionSpacing: {
     marginTop: 24,
   },
   sectionHint: {
-    color: C.text3,
+    color: L.muted,
     fontFamily: F.ui,
     fontSize: 12,
     lineHeight: 18,
   },
   partCard: {
-    backgroundColor: C.surface,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 16,
-    padding: 14,
+    borderColor: L.hairline,
+    borderRadius: R.lg,
+    padding: 16,
     gap: 12,
   },
   partRow: {
@@ -368,69 +375,81 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   partIndex: {
-    color: C.faint,
+    color: L.tertiary,
     fontFamily: F.uiMed,
     fontSize: 14,
     width: 18,
   },
   field: {
     flex: 1,
-    gap: 6,
+    gap: 8,
   },
   fieldLabel: {
-    color: C.text3,
+    color: L.ink2,
     fontFamily: F.uiMed,
-    fontSize: 12,
+    fontSize: 13,
   },
   input: {
-    color: C.text,
+    height: 44,
+    color: L.ink,
     fontFamily: F.ui,
     fontSize: 15,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: C.border2,
-    borderRadius: 10,
+    borderColor: L.border,
+    borderRadius: R.md,
     paddingHorizontal: 12,
-    paddingVertical: 9,
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
+    height: 44,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: C.border2,
+    borderColor: L.border,
     borderStyle: 'dashed',
-    borderRadius: 16,
-    paddingVertical: 14,
+    borderRadius: R.lg,
+  },
+  addButtonPressed: {
+    backgroundColor: L.pressed,
   },
   addButtonText: {
-    color: C.text2,
-    fontFamily: F.uiMed,
+    color: L.ink2,
+    fontFamily: F.uiSemi,
     fontSize: 13,
+  },
+  optionCard: {
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.hairline,
+    borderRadius: R.lg,
+    overflow: 'hidden',
+  },
+  rowSeparator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: L.hairline,
   },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 16,
-    padding: 14,
+    padding: 16,
   },
   optionSelected: {
-    borderColor: C.border2,
+    backgroundColor: L.selected,
   },
   optionTitle: {
-    color: C.text2,
+    color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 14,
   },
   optionTitleSelected: {
-    color: C.text,
+    color: L.accent,
   },
   optionDesc: {
-    color: C.text3,
+    color: L.muted,
     fontFamily: F.ui,
     fontSize: 12,
     lineHeight: 17,
@@ -438,12 +457,12 @@ const styles = StyleSheet.create({
   },
   previewBox: {
     borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 16,
+    borderColor: L.hairline,
+    borderRadius: R.lg,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 20,
-    backgroundColor: '#050607',
+    backgroundColor: '#000000',
   },
   previewTime: {
     fontFamily: F.monoThin,
@@ -451,67 +470,82 @@ const styles = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
+    height: 36,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: C.border2,
-    borderRadius: 12,
+    borderColor: L.border,
+    borderRadius: R.md,
     overflow: 'hidden',
   },
   segmentItem: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
+    justifyContent: 'center',
   },
-  segmentItemSelected: {
-    backgroundColor: '#1C1E22',
+  segmentDivider: {
+    borderLeftWidth: 1,
+    borderLeftColor: L.border,
+  },
+  segmentItemOn: {
+    backgroundColor: L.selected,
   },
   segmentText: {
-    color: C.text2,
+    color: L.ink2,
     fontFamily: F.uiMed,
     fontSize: 13,
   },
-  segmentTextSelected: {
-    color: C.text,
+  segmentTextOn: {
+    color: L.accent,
+    fontFamily: F.uiSemi,
   },
   swatchRow: {
     flexDirection: 'row',
-    gap: 14,
+    gap: 10,
+  },
+  swatchWrap: {
+    padding: 3,
+    borderRadius: R.md + 2,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  swatchWrapSelected: {
+    borderColor: L.ink,
   },
   swatch: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  swatchSelected: {
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+    width: 28,
+    height: 28,
+    borderRadius: R.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: L.border,
   },
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    backgroundColor: C.text,
-    borderRadius: 999,
-    paddingVertical: 15,
+    gap: 8,
+    height: 48,
+    backgroundColor: L.accent,
+    borderRadius: R.md,
     marginTop: 24,
   },
+  saveButtonPressed: {
+    backgroundColor: L.accentPressed,
+  },
   saveButtonDone: {
-    backgroundColor: C.green,
+    backgroundColor: L.success,
   },
   saveButtonText: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontFamily: F.uiSemi,
     fontSize: 14,
   },
   footnote: {
-    color: C.faint,
+    color: L.tertiary,
     fontFamily: F.ui,
     fontSize: 11,
     textAlign: 'center',
   },
   pressed: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
 });

@@ -18,8 +18,36 @@ import { formatClock, formatDate, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
-import { PillButton } from '@/features/ui/components';
-import { C, F } from '@/features/ui/theme';
+import { D, F, R } from '@/features/ui/theme';
+
+type TimerButtonProps = {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+};
+
+// AMOLED ekrana özel koyu buton: saydam zemin, hairline kenarlık, minimal radius.
+function TimerButton({ icon, label, onPress, primary }: TimerButtonProps) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.button,
+        primary && styles.buttonPrimary,
+        pressed && styles.pressed,
+      ]}
+      onPress={onPress}
+    >
+      <Feather name={icon} size={17} color={primary ? D.text : D.text2} />
+      <Text
+        style={[styles.buttonText, primary && styles.buttonTextPrimary]}
+        maxFontSizeMultiplier={1.3}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 // Sayaç çalışırken arayüz (part adı, butonlar) bu süre sonunda kendiliğinden
 // gizlenir; ekrana dokunmak arayüzü açıp kapatır.
@@ -175,7 +203,7 @@ export default function FullscreenTimerScreen() {
           hitSlop={12}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
-          <Feather name="minimize" size={19} color={C.text2} />
+          <Feather name="minimize" size={19} color={D.text2} />
         </Pressable>
       </Animated.View>
 
@@ -241,7 +269,7 @@ export default function FullscreenTimerScreen() {
       >
         {timer.alarmActive && (
           <View style={styles.hintRow}>
-            <Feather name="bell-off" size={15} color={C.amber} />
+            <Feather name="bell-off" size={15} color={D.amber} />
             <Text style={styles.hint} maxFontSizeMultiplier={1.3}>
               Susturmak için dokun
             </Text>
@@ -249,7 +277,7 @@ export default function FullscreenTimerScreen() {
         )}
 
         {timer.status === 'idle' && (
-          <PillButton icon="play" label="Başlat" onPress={timer.start} primary />
+          <TimerButton icon="play" label="Başlat" onPress={timer.start} primary />
         )}
 
         {/* Partlar arası bekleme: Devam ile geç; otomatik modda alarm bitince
@@ -262,8 +290,8 @@ export default function FullscreenTimerScreen() {
               </Text>
             )}
             <View style={styles.buttonRow}>
-              <PillButton icon="play" label="Devam" onPress={timer.advance} primary />
-              <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+              <TimerButton icon="play" label="Devam" onPress={timer.advance} primary />
+              <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
             </View>
           </>
         )}
@@ -272,20 +300,20 @@ export default function FullscreenTimerScreen() {
             aceleyle Sıfırla'ya basılıp seans kaybedilmez. */}
         {running && !timer.alarmActive && (
           <View style={styles.buttonRow}>
-            <PillButton icon="pause" label="Duraklat" onPress={timer.pause} />
-            <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+            <TimerButton icon="pause" label="Duraklat" onPress={timer.pause} />
+            <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
           </View>
         )}
 
         {timer.status === 'paused' && (
           <View style={styles.buttonRow}>
-            <PillButton icon="play" label="Devam" onPress={timer.resume} primary />
-            <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+            <TimerButton icon="play" label="Devam" onPress={timer.resume} primary />
+            <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
           </View>
         )}
 
         {timer.status === 'done' && !timer.alarmActive && (
-          <PillButton icon="refresh-ccw" label="Yeniden Başlat" onPress={timer.reset} primary />
+          <TimerButton icon="refresh-ccw" label="Yeniden Başlat" onPress={timer.reset} primary />
         )}
       </Animated.View>
     </Pressable>
@@ -295,7 +323,7 @@ export default function FullscreenTimerScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: D.bg,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 24,
@@ -311,7 +339,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: '#1C1E22',
+    borderColor: D.dotOff,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -322,7 +350,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   phaseLabel: {
-    color: C.text2,
+    color: D.text2,
     fontFamily: F.mono,
     fontSize: 20,
     letterSpacing: 8,
@@ -336,13 +364,13 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#1C1E22',
+    backgroundColor: D.dotOff,
   },
   dotPast: {
-    backgroundColor: '#4A4F58',
+    backgroundColor: D.dotPast,
   },
   dotActive: {
-    backgroundColor: C.text,
+    backgroundColor: D.text,
   },
   timeGroup: {
     alignItems: 'center',
@@ -354,19 +382,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   clock: {
-    color: '#B6BBC2',
+    color: D.clock,
     fontFamily: F.mono,
     fontVariant: ['tabular-nums'],
     letterSpacing: 3,
     marginTop: 4,
   },
   date: {
-    color: C.text2,
+    color: D.text2,
     fontFamily: F.mono,
     letterSpacing: 2,
   },
   model: {
-    color: C.text3,
+    color: D.text3,
     fontFamily: F.mono,
     fontSize: 13,
     letterSpacing: 1,
@@ -379,14 +407,39 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   hint: {
-    color: C.amber,
+    color: D.amber,
     fontFamily: F.mono,
     fontSize: 13,
     letterSpacing: 1,
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
+  },
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: D.border,
+  },
+  buttonPrimary: {
+    borderColor: D.text,
+    paddingHorizontal: 28,
+  },
+  buttonText: {
+    color: D.text2,
+    fontFamily: F.mono,
+    fontSize: 14,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  buttonTextPrimary: {
+    color: D.text,
   },
   pressed: {
     opacity: 0.6,

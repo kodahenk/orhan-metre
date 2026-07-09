@@ -22,8 +22,8 @@ import {
   startOfWeek,
   WEEKDAYS_SHORT,
 } from '@/features/timer/format';
-import { ScreenHeader } from '@/features/ui/components';
-import { C, F } from '@/features/ui/theme';
+import { Checkbox, ScreenHeader } from '@/features/ui/components';
+import { F, L, R } from '@/features/ui/theme';
 
 type Mode = 'gun' | 'hafta' | 'ay';
 
@@ -61,12 +61,11 @@ export default function CalendarScreen() {
   const dayTasks = tasksByDate.get(selectedKey) ?? [];
 
   const shift = (n: number) => {
-    const step = mode === 'ay' ? 0 : mode === 'hafta' ? 7 * n : n;
     if (mode === 'ay') {
       const d = new Date(selected.getFullYear(), selected.getMonth() + n, 1);
       setSelectedKey(dateKey(d));
     } else {
-      setSelectedKey(dateKey(addDays(selected, step)));
+      setSelectedKey(dateKey(addDays(selected, mode === 'hafta' ? 7 * n : n)));
     }
   };
 
@@ -109,12 +108,16 @@ export default function CalendarScreen() {
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Görünüm seçici */}
+            {/* Görünüm seçici — 36dp segment, kayan yok */}
             <View style={styles.segment}>
-              {MODES.map((m) => (
+              {MODES.map((m, i) => (
                 <Pressable
                   key={m.key}
-                  style={[styles.segmentItem, mode === m.key && styles.segmentItemOn]}
+                  style={[
+                    styles.segmentItem,
+                    i > 0 && styles.segmentDivider,
+                    mode === m.key && styles.segmentItemOn,
+                  ]}
                   onPress={() => setMode(m.key)}
                 >
                   <Text
@@ -129,63 +132,76 @@ export default function CalendarScreen() {
 
             {/* Dönem başlığı + gezinme */}
             <View style={styles.periodRow}>
-              <Pressable onPress={() => shift(-1)} hitSlop={12} style={styles.navButton}>
-                <Feather name="chevron-left" size={20} color={C.text2} />
+              <Pressable
+                onPress={() => shift(-1)}
+                hitSlop={8}
+                style={({ pressed }) => [styles.navButton, pressed && styles.navPressed]}
+              >
+                <Feather name="chevron-left" size={20} color={L.ink2} />
               </Pressable>
               <Text style={styles.periodTitle} maxFontSizeMultiplier={1.2}>
                 {periodTitle}
               </Text>
-              <Pressable onPress={() => shift(1)} hitSlop={12} style={styles.navButton}>
-                <Feather name="chevron-right" size={20} color={C.text2} />
+              <Pressable
+                onPress={() => shift(1)}
+                hitSlop={8}
+                style={({ pressed }) => [styles.navButton, pressed && styles.navPressed]}
+              >
+                <Feather name="chevron-right" size={20} color={L.ink2} />
               </Pressable>
             </View>
 
             {/* Ay görünümü */}
             {mode === 'ay' && (
-              <View style={styles.monthGrid}>
-                {WEEKDAYS_SHORT.map((_, i) => {
-                  // Pazartesi başlangıçlı sıralama
-                  const label = WEEKDAYS_SHORT[(i + 1) % 7];
-                  return (
+              <View style={styles.monthCard}>
+                <View style={styles.monthGrid}>
+                  {WEEKDAYS_SHORT.map((_, i) => (
                     <Text key={i} style={styles.weekdayLabel} maxFontSizeMultiplier={1.2}>
-                      {label}
+                      {WEEKDAYS_SHORT[(i + 1) % 7]}
                     </Text>
-                  );
-                })}
-                {monthGrid.map((d) => {
-                  const key = dateKey(d);
-                  const inMonth = d.getMonth() === selected.getMonth();
-                  const isSelected = key === selectedKey;
-                  const isToday = key === todayKey;
-                  const dots = (tasksByDate.get(key) ?? []).slice(0, 3);
-                  return (
-                    <Pressable
-                      key={key}
-                      style={[
-                        styles.dayCell,
-                        isSelected && styles.dayCellSelected,
-                        isToday && !isSelected && styles.dayCellToday,
-                      ]}
-                      onPress={() => setSelectedKey(key)}
-                    >
-                      <Text
+                  ))}
+                  {monthGrid.map((d) => {
+                    const key = dateKey(d);
+                    const inMonth = d.getMonth() === selected.getMonth();
+                    const isSelected = key === selectedKey;
+                    const isToday = key === todayKey;
+                    const dots = (tasksByDate.get(key) ?? []).slice(0, 3);
+                    return (
+                      <Pressable
+                        key={key}
                         style={[
-                          styles.dayNum,
-                          !inMonth && styles.dayNumMuted,
-                          isSelected && styles.dayNumSelected,
+                          styles.dayCell,
+                          isToday && !isSelected && styles.dayCellToday,
+                          isSelected && styles.dayCellSelected,
                         ]}
-                        maxFontSizeMultiplier={1.1}
+                        onPress={() => setSelectedKey(key)}
                       >
-                        {d.getDate()}
-                      </Text>
-                      <View style={styles.dotRow}>
-                        {dots.map(({ project }, i) => (
-                          <View key={i} style={[styles.taskDot, { backgroundColor: project.color }]} />
-                        ))}
-                      </View>
-                    </Pressable>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.dayNum,
+                            !inMonth && styles.dayNumMuted,
+                            isToday && !isSelected && styles.dayNumToday,
+                            isSelected && styles.dayNumSelected,
+                          ]}
+                          maxFontSizeMultiplier={1.1}
+                        >
+                          {d.getDate()}
+                        </Text>
+                        <View style={styles.dotRow}>
+                          {dots.map(({ project }, i) => (
+                            <View
+                              key={i}
+                              style={[
+                                styles.taskDot,
+                                { backgroundColor: isSelected ? '#FFFFFF' : project.color },
+                              ]}
+                            />
+                          ))}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
             )}
 
@@ -200,16 +216,23 @@ export default function CalendarScreen() {
                   return (
                     <Pressable
                       key={key}
-                      style={[styles.weekDay, isSelected && styles.weekDaySelected]}
+                      style={[
+                        styles.weekDay,
+                        isToday && !isSelected && styles.weekDayToday,
+                        isSelected && styles.weekDaySelected,
+                      ]}
                       onPress={() => setSelectedKey(key)}
                     >
-                      <Text style={styles.weekDayName} maxFontSizeMultiplier={1.1}>
+                      <Text
+                        style={[styles.weekDayName, isSelected && styles.weekDayNameSelected]}
+                        maxFontSizeMultiplier={1.1}
+                      >
                         {WEEKDAYS_SHORT[d.getDay()]}
                       </Text>
                       <Text
                         style={[
                           styles.weekDayNum,
-                          isToday && styles.weekDayNumToday,
+                          isToday && !isSelected && styles.weekDayNumToday,
                           isSelected && styles.weekDayNumSelected,
                         ]}
                         maxFontSizeMultiplier={1.1}
@@ -217,7 +240,13 @@ export default function CalendarScreen() {
                         {d.getDate()}
                       </Text>
                       <View
-                        style={[styles.taskDot, { opacity: hasTasks ? 1 : 0, backgroundColor: C.blue }]}
+                        style={[
+                          styles.taskDot,
+                          {
+                            opacity: hasTasks ? 1 : 0,
+                            backgroundColor: isSelected ? '#FFFFFF' : L.accent,
+                          },
+                        ]}
                       />
                     </Pressable>
                   );
@@ -227,8 +256,8 @@ export default function CalendarScreen() {
 
             {/* Seçili günün görevleri (tüm görünümlerde) */}
             <Text style={styles.dayTitle} maxFontSizeMultiplier={1.3}>
-              {formatDate(selected)}
-              {selectedKey === todayKey ? ' · Bugün' : ''}
+              {formatDate(selected).toUpperCase()}
+              {selectedKey === todayKey ? ' · BUGÜN' : ''}
             </Text>
 
             {dayTasks.length === 0 && (
@@ -237,34 +266,32 @@ export default function CalendarScreen() {
               </Text>
             )}
 
-            {dayTasks.map(({ project, task }) => (
-              <View key={task.id} style={styles.taskRow}>
-                <Pressable
-                  onPress={() => updateTask(project.id, task.id, { done: !task.done })}
-                  hitSlop={8}
-                >
-                  <Feather
-                    name={task.done ? 'check-circle' : 'circle'}
-                    size={20}
-                    color={task.done ? C.green : C.text3}
-                  />
-                </Pressable>
-                <View style={styles.flex}>
-                  <Text
-                    style={[styles.taskTitle, task.done && styles.taskTitleDone]}
-                    maxFontSizeMultiplier={1.3}
-                  >
-                    {task.title}
-                  </Text>
-                  <View style={styles.taskProjectRow}>
-                    <View style={[styles.projectDot, { backgroundColor: project.color }]} />
-                    <Text style={styles.taskProject} maxFontSizeMultiplier={1.2}>
-                      {project.name}
-                    </Text>
+            {dayTasks.length > 0 && (
+              <View style={styles.card}>
+                {dayTasks.map(({ project, task }, i) => (
+                  <View key={task.id} style={[styles.taskRow, i > 0 && styles.rowSeparator]}>
+                    <Checkbox
+                      checked={task.done}
+                      onPress={() => updateTask(project.id, task.id, { done: !task.done })}
+                    />
+                    <View style={styles.flex}>
+                      <Text
+                        style={[styles.taskTitle, task.done && styles.taskTitleDone]}
+                        maxFontSizeMultiplier={1.3}
+                      >
+                        {task.title}
+                      </Text>
+                      <View style={styles.taskProjectRow}>
+                        <View style={[styles.projectDot, { backgroundColor: project.color }]} />
+                        <Text style={styles.taskProject} maxFontSizeMultiplier={1.2}>
+                          {project.name}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                </View>
+                ))}
               </View>
-            ))}
+            )}
 
             {/* Seçili güne hızlı görev ekleme (ilk projeye) */}
             <View style={styles.addRow}>
@@ -273,16 +300,16 @@ export default function CalendarScreen() {
                 value={newTask}
                 onChangeText={setNewTask}
                 placeholder={`Bu güne görev ekle (${projects[0]?.name ?? ''})`}
-                placeholderTextColor={C.faint}
+                placeholderTextColor={L.tertiary}
                 onSubmitEditing={submitTask}
                 returnKeyType="done"
                 maxLength={80}
               />
               <Pressable
-                style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
                 onPress={submitTask}
               >
-                <Feather name="plus" size={20} color={C.text} />
+                <Feather name="plus" size={20} color="#FFFFFF" />
               </Pressable>
             </View>
           </ScrollView>
@@ -297,7 +324,7 @@ const CELL = `${100 / 7}%` as const;
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
@@ -306,7 +333,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 20,
+    padding: 16,
     gap: 14,
     maxWidth: 560,
     width: '100%',
@@ -314,26 +341,33 @@ const styles = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
+    height: 36,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: C.border2,
-    borderRadius: 12,
+    borderColor: L.border,
+    borderRadius: R.md,
     overflow: 'hidden',
   },
   segmentItem: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 9,
+    justifyContent: 'center',
+  },
+  segmentDivider: {
+    borderLeftWidth: 1,
+    borderLeftColor: L.border,
   },
   segmentItemOn: {
-    backgroundColor: '#1C1E22',
+    backgroundColor: L.selected,
   },
   segmentText: {
-    color: C.text2,
+    color: L.ink2,
     fontFamily: F.uiMed,
     fontSize: 13,
   },
   segmentTextOn: {
-    color: C.text,
+    color: L.accent,
+    fontFamily: F.uiSemi,
   },
   periodRow: {
     flexDirection: 'row',
@@ -341,15 +375,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   navButton: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: R.md,
+  },
+  navPressed: {
+    backgroundColor: L.pressed,
   },
   periodTitle: {
-    color: C.text,
+    color: L.ink,
     fontFamily: F.uiSemi,
     fontSize: 15,
+  },
+  monthCard: {
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.hairline,
+    borderRadius: R.lg,
+    padding: 8,
   },
   monthGrid: {
     flexDirection: 'row',
@@ -358,9 +403,9 @@ const styles = StyleSheet.create({
   weekdayLabel: {
     width: CELL,
     textAlign: 'center',
-    color: C.text3,
-    fontFamily: F.uiMed,
-    fontSize: 11,
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 12,
     paddingVertical: 6,
   },
   dayCell: {
@@ -368,36 +413,41 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
+    borderRadius: R.md,
     gap: 3,
   },
-  dayCellSelected: {
-    backgroundColor: '#1C1E22',
-  },
   dayCellToday: {
-    borderWidth: 1,
-    borderColor: C.border2,
+    borderWidth: 1.5,
+    borderColor: L.accent,
+  },
+  dayCellSelected: {
+    backgroundColor: L.accent,
   },
   dayNum: {
-    color: C.text,
+    color: L.ink,
     fontFamily: F.ui,
     fontSize: 14,
   },
   dayNumMuted: {
-    color: C.faint,
+    color: L.borderActive,
+  },
+  dayNumToday: {
+    color: L.accent,
+    fontFamily: F.uiSemi,
   },
   dayNumSelected: {
+    color: '#FFFFFF',
     fontFamily: F.uiSemi,
   },
   dotRow: {
     flexDirection: 'row',
     gap: 3,
-    height: 5,
+    height: 4,
   },
   taskDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
   },
   weekRow: {
     flexDirection: 'row',
@@ -408,59 +458,78 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: R.md,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: L.hairline,
+  },
+  weekDayToday: {
+    borderColor: L.accent,
   },
   weekDaySelected: {
-    backgroundColor: '#1C1E22',
+    backgroundColor: L.accent,
+    borderColor: L.accent,
   },
   weekDayName: {
-    color: C.text3,
+    color: L.tertiary,
     fontFamily: F.uiMed,
     fontSize: 11,
   },
+  weekDayNameSelected: {
+    color: '#D3E5FF',
+  },
   weekDayNum: {
-    color: C.text,
+    color: L.ink,
     fontFamily: F.ui,
     fontSize: 16,
   },
   weekDayNumToday: {
-    color: C.blue,
+    color: L.accent,
+    fontFamily: F.uiSemi,
   },
   weekDayNumSelected: {
+    color: '#FFFFFF',
     fontFamily: F.uiSemi,
   },
   dayTitle: {
-    color: C.text2,
+    color: L.tertiary,
     fontFamily: F.uiSemi,
     fontSize: 13,
-    marginTop: 6,
+    letterSpacing: 0.6,
+    marginTop: 8,
   },
   emptyText: {
-    color: C.text3,
+    color: L.tertiary,
     fontFamily: F.ui,
     fontSize: 13,
-    paddingVertical: 8,
+    paddingVertical: 4,
+  },
+  card: {
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.hairline,
+    borderRadius: R.lg,
+    overflow: 'hidden',
+  },
+  rowSeparator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: L.hairline,
   },
   taskRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 52,
+    paddingVertical: 10,
   },
   taskTitle: {
-    color: C.text,
+    color: L.ink,
     fontFamily: F.uiMed,
-    fontSize: 14.5,
+    fontSize: 15,
   },
   taskTitleDone: {
-    color: C.text3,
+    color: L.tertiary,
     textDecorationLine: 'line-through',
   },
   taskProjectRow: {
@@ -475,34 +544,35 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
   },
   taskProject: {
-    color: C.text3,
+    color: L.ink2,
     fontFamily: F.ui,
-    fontSize: 11.5,
+    fontSize: 12,
   },
   addRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   input: {
     flex: 1,
-    color: C.text,
+    height: 48,
+    color: L.ink,
     fontFamily: F.ui,
     fontSize: 14,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: C.border2,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    borderColor: L.border,
+    borderRadius: R.md,
+    paddingHorizontal: 12,
   },
   addButton: {
     width: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.text,
+    height: 48,
+    borderRadius: R.md,
+    backgroundColor: L.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pressed: {
-    opacity: 0.6,
+  addButtonPressed: {
+    backgroundColor: L.accentPressed,
   },
 });

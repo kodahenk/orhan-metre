@@ -8,8 +8,8 @@ import { formatClock, formatDate, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
-import { HeaderIconButton, PillButton, ScreenHeader } from '@/features/ui/components';
-import { C, F } from '@/features/ui/theme';
+import { Button, HeaderIconButton, ScreenHeader } from '@/features/ui/components';
+import { F, L } from '@/features/ui/theme';
 
 export default function TimerTabScreen() {
   const router = useRouter();
@@ -22,10 +22,10 @@ export default function TimerTabScreen() {
 
   // Sekme çubuğu + başlık + kontroller varken rakamlara kalan alan daha dar;
   // tam ekrandakiyle aynı sığdırma mantığı, daha küçük bütçeyle.
-  const fitFontSize = Math.max(40, Math.min(160, width * 0.26, (height - 430) / 1.32));
+  const fitFontSize = Math.max(40, Math.min(140, width * 0.24, (height - 430) / 1.32));
   const timeFontSize = fitFontSize * DISPLAY_SIZE_SCALE[settings.display.size];
-  const clockFontSize = Math.max(16, Math.round(timeFontSize * 0.3));
-  const dateFontSize = Math.max(13, Math.round(timeFontSize * 0.22));
+  const clockFontSize = Math.max(15, Math.round(timeFontSize * 0.28));
+  const dateFontSize = Math.max(13, Math.round(timeFontSize * 0.2));
 
   const [dateText, setDateText] = useState(() => formatDate(new Date()));
   const [clockText, setClockText] = useState(() => formatClock(new Date()));
@@ -84,7 +84,7 @@ export default function TimerTabScreen() {
 
           <View style={styles.timeGroup}>
             <Text
-              style={[styles.time, { fontSize: timeFontSize, color: settings.display.color }]}
+              style={[styles.time, { fontSize: timeFontSize }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               maxFontSizeMultiplier={1.1}
@@ -110,7 +110,7 @@ export default function TimerTabScreen() {
           <View style={styles.controls}>
             {timer.alarmActive && (
               <View style={styles.hintRow}>
-                <Feather name="bell-off" size={15} color={C.amber} />
+                <Feather name="bell-off" size={15} color={L.warning} />
                 <Text style={styles.hint} maxFontSizeMultiplier={1.3}>
                   Susturmak için dokun
                 </Text>
@@ -118,32 +118,37 @@ export default function TimerTabScreen() {
             )}
 
             {timer.status === 'idle' && (
-              <PillButton icon="play" label="Başlat" onPress={timer.start} primary />
+              <Button icon="play" label="Başlat" onPress={timer.start} variant="primary" />
             )}
 
             {between && !timer.alarmActive && (
               <View style={styles.buttonRow}>
-                <PillButton icon="play" label="Devam" onPress={timer.advance} primary />
-                <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+                <Button icon="play" label="Devam" onPress={timer.advance} variant="primary" />
+                <Button icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
               </View>
             )}
 
             {running && !timer.alarmActive && (
               <View style={styles.buttonRow}>
-                <PillButton icon="pause" label="Duraklat" onPress={timer.pause} />
-                <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+                <Button icon="pause" label="Duraklat" onPress={timer.pause} />
+                <Button icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
               </View>
             )}
 
             {timer.status === 'paused' && (
               <View style={styles.buttonRow}>
-                <PillButton icon="play" label="Devam" onPress={timer.resume} primary />
-                <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+                <Button icon="play" label="Devam" onPress={timer.resume} variant="primary" />
+                <Button icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
               </View>
             )}
 
             {timer.status === 'done' && !timer.alarmActive && (
-              <PillButton icon="refresh-ccw" label="Yeniden Başlat" onPress={timer.reset} primary />
+              <Button
+                icon="refresh-ccw"
+                label="Yeniden Başlat"
+                onPress={timer.reset}
+                variant="primary"
+              />
             )}
           </View>
         </Pressable>
@@ -155,7 +160,7 @@ export default function TimerTabScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
@@ -168,51 +173,52 @@ const styles = StyleSheet.create({
   },
   topGroup: {
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
   },
   phaseLabel: {
-    color: C.text2,
-    fontFamily: F.mono,
-    fontSize: 17,
-    letterSpacing: 6,
+    color: L.ink2,
+    fontFamily: F.uiSemi,
+    fontSize: 13,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   dots: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#1C1E22',
+    backgroundColor: L.hairline,
   },
   dotPast: {
-    backgroundColor: '#4A4F58',
+    backgroundColor: L.borderActive,
   },
   dotActive: {
-    backgroundColor: C.text,
+    backgroundColor: L.accent,
   },
   timeGroup: {
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   time: {
-    fontFamily: F.monoThin,
+    color: L.ink,
+    fontFamily: F.monoMed,
     fontVariant: ['tabular-nums'],
     paddingHorizontal: 16,
   },
   clock: {
-    color: '#B6BBC2',
+    color: L.ink2,
     fontFamily: F.mono,
     fontVariant: ['tabular-nums'],
-    letterSpacing: 3,
+    letterSpacing: 2,
     marginTop: 4,
   },
   date: {
-    color: C.text2,
+    color: L.tertiary,
     fontFamily: F.mono,
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   controls: {
     alignItems: 'center',
@@ -226,13 +232,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   hint: {
-    color: C.amber,
-    fontFamily: F.mono,
+    color: L.warning,
+    fontFamily: F.uiMed,
     fontSize: 13,
-    letterSpacing: 1,
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
   },
 });

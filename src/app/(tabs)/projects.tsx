@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useProjects } from '@/features/projects/projects-context';
 import { ScreenHeader } from '@/features/ui/components';
-import { C, F } from '@/features/ui/theme';
+import { F, L, R } from '@/features/ui/theme';
 
 export default function ProjectsScreen() {
   const router = useRouter();
@@ -42,38 +42,45 @@ export default function ProjectsScreen() {
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
           >
-            {projects.map((project) => {
-              const total = project.tasks.length;
-              const done = project.tasks.filter((t) => t.done).length;
-              return (
-                <Pressable
-                  key={project.id}
-                  style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-                  onPress={() => router.push(`/project/${project.id}`)}
-                >
-                  <View style={[styles.colorDot, { backgroundColor: project.color }]} />
-                  <View style={styles.flex}>
-                    <Text style={styles.cardTitle} maxFontSizeMultiplier={1.3}>
-                      {project.name}
-                    </Text>
-                    <Text style={styles.cardMeta} maxFontSizeMultiplier={1.3}>
-                      {total === 0 ? 'Görev yok' : `${done}/${total} görev tamamlandı`}
-                    </Text>
-                  </View>
-                  {total > 0 && (
-                    <View style={styles.progressWrap}>
-                      <View
-                        style={[
-                          styles.progressBar,
-                          { width: `${Math.round((done / total) * 100)}%` },
-                        ]}
-                      />
+            {/* Proje listesi — tek beyaz kart içinde satırlar */}
+            <View style={styles.card}>
+              {projects.map((project, i) => {
+                const total = project.tasks.length;
+                const done = project.tasks.filter((t) => t.done).length;
+                return (
+                  <Pressable
+                    key={project.id}
+                    style={({ pressed }) => [
+                      styles.row,
+                      i > 0 && styles.rowSeparator,
+                      pressed && styles.rowPressed,
+                    ]}
+                    onPress={() => router.push(`/project/${project.id}`)}
+                  >
+                    <View style={[styles.colorDot, { backgroundColor: project.color }]} />
+                    <View style={styles.flex}>
+                      <Text style={styles.rowTitle} maxFontSizeMultiplier={1.3}>
+                        {project.name}
+                      </Text>
+                      <Text style={styles.rowMeta} maxFontSizeMultiplier={1.3}>
+                        {total === 0 ? 'Görev yok' : `${done}/${total} görev tamamlandı`}
+                      </Text>
                     </View>
-                  )}
-                  <Feather name="chevron-right" size={18} color={C.text3} />
-                </Pressable>
-              );
-            })}
+                    {total > 0 && (
+                      <View style={styles.progressWrap}>
+                        <View
+                          style={[
+                            styles.progressBar,
+                            { width: `${Math.round((done / total) * 100)}%` },
+                          ]}
+                        />
+                      </View>
+                    )}
+                    <Feather name="chevron-right" size={20} color={L.tertiary} />
+                  </Pressable>
+                );
+              })}
+            </View>
 
             {/* Yeni proje */}
             <View style={styles.addRow}>
@@ -82,16 +89,16 @@ export default function ProjectsScreen() {
                 value={newName}
                 onChangeText={setNewName}
                 placeholder="Yeni proje adı"
-                placeholderTextColor={C.faint}
+                placeholderTextColor={L.tertiary}
                 onSubmitEditing={submit}
                 returnKeyType="done"
                 maxLength={40}
               />
               <Pressable
-                style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
                 onPress={submit}
               >
-                <Feather name="plus" size={20} color={C.text} />
+                <Feather name="plus" size={20} color="#FFFFFF" />
               </Pressable>
             </View>
           </ScrollView>
@@ -104,7 +111,7 @@ export default function ProjectsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
@@ -113,76 +120,86 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 20,
-    gap: 12,
+    padding: 16,
+    gap: 16,
     maxWidth: 560,
     width: '100%',
     alignSelf: 'center',
   },
   card: {
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.hairline,
+    borderRadius: R.lg,
+    overflow: 'hidden',
+  },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 16,
+    gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    minHeight: 68,
+    paddingVertical: 12,
+  },
+  rowSeparator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: L.hairline,
+  },
+  rowPressed: {
+    backgroundColor: L.pressed,
   },
   colorDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
   },
-  cardTitle: {
-    color: C.text,
-    fontFamily: F.uiSemi,
+  rowTitle: {
+    color: L.ink,
+    fontFamily: F.uiMed,
     fontSize: 15,
   },
-  cardMeta: {
-    color: C.text3,
+  rowMeta: {
+    color: L.ink2,
     fontFamily: F.ui,
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 3,
   },
   progressWrap: {
     width: 52,
     height: 4,
     borderRadius: 2,
-    backgroundColor: C.border,
+    backgroundColor: L.hairline,
     overflow: 'hidden',
   },
   progressBar: {
     height: 4,
-    borderRadius: 2,
-    backgroundColor: C.green,
+    backgroundColor: L.success,
   },
   addRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 6,
+    gap: 12,
   },
   input: {
     flex: 1,
-    color: C.text,
+    height: 48,
+    color: L.ink,
     fontFamily: F.ui,
     fontSize: 15,
+    backgroundColor: L.surface,
     borderWidth: 1,
-    borderColor: C.border2,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    borderColor: L.border,
+    borderRadius: R.md,
+    paddingHorizontal: 12,
   },
   addButton: {
     width: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.text,
+    height: 48,
+    borderRadius: R.md,
+    backgroundColor: L.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pressed: {
-    opacity: 0.6,
+  addButtonPressed: {
+    backgroundColor: L.accentPressed,
   },
 });
