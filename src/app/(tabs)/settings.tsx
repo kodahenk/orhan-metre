@@ -1,11 +1,5 @@
-import {
-  RobotoMono_200ExtraLight,
-  RobotoMono_300Light,
-} from '@expo-google-fonts/roboto-mono';
 import { Feather } from '@expo/vector-icons';
-import { useFonts } from 'expo-font';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -28,8 +22,8 @@ import {
   type TimerSettings,
 } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
-
-const UI_FONT = 'RobotoMono_300Light';
+import { ScreenHeader } from '@/features/ui/components';
+import { C, F } from '@/features/ui/theme';
 
 // Sayı alanları yazım sırasında serbest metin tutulur; kaydederken ayrıştırılıp
 // sınırlara oturtulur (settings.sanitizeSettings).
@@ -52,17 +46,20 @@ function toDraft(settings: TimerSettings): DraftPart[] {
 const parseNum = (s: string) => Number(s.replace(',', '.'));
 
 export default function SettingsScreen() {
-  const [fontsLoaded] = useFonts({
-    RobotoMono_200ExtraLight,
-    RobotoMono_300Light,
-  });
-  const router = useRouter();
   const { settings, save } = useTimerSettings();
 
   const [parts, setParts] = useState<DraftPart[]>(() => toDraft(settings));
   const [autoAdvance, setAutoAdvance] = useState(settings.autoAdvance);
   const [display, setDisplay] = useState(settings.display);
   const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    };
+  }, []);
 
   const updatePart = (id: string, patch: Partial<DraftPart>) => {
     setParts((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -83,46 +80,36 @@ export default function SettingsScreen() {
     if (saving) return;
     setSaving(true);
     try {
-      await save(
-        sanitizeSettings({
-          version: 2,
-          autoAdvance,
-          display,
-          parts: parts.map((p) => ({
-            id: p.id,
-            label: p.label,
-            minutes: parseNum(p.minutes),
-            alarmSeconds: parseNum(p.alarmSeconds),
-          })),
-        }),
-      );
-      router.back();
+      const clean = sanitizeSettings({
+        version: 2,
+        autoAdvance,
+        display,
+        parts: parts.map((p) => ({
+          id: p.id,
+          label: p.label,
+          minutes: parseNum(p.minutes),
+          alarmSeconds: parseNum(p.alarmSeconds),
+        })),
+      });
+      await save(clean);
+      // Kaydedilmiş (sınırlara oturtulmuş) değerleri forma geri yansıt.
+      setParts(toDraft(clean));
+      setSavedFlash(true);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setSavedFlash(false), 2000);
     } finally {
       setSaving(false);
     }
   };
 
-  if (!fontsLoaded) {
-    return <View style={styles.screen} />;
-  }
-
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScreenHeader title="Ayarlar" />
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.header}>
-            <Pressable style={styles.headerButton} onPress={() => router.back()} hitSlop={12}>
-              <Feather name="chevron-left" size={22} color="#8A8F98" />
-            </Pressable>
-            <Text style={styles.headerTitle} maxFontSizeMultiplier={1.3}>
-              Ayarlar
-            </Text>
-            <View style={styles.headerButton} />
-          </View>
-
           <ScrollView
             style={styles.flex}
             contentContainerStyle={styles.content}
@@ -144,11 +131,11 @@ export default function SettingsScreen() {
                     {i + 1}
                   </Text>
                   <TextInput
-                    style={[styles.input, styles.inputLabel]}
+                    style={[styles.input, styles.flex]}
                     value={part.label}
                     onChangeText={(t) => updatePart(part.id, { label: t })}
                     placeholder="Part adı"
-                    placeholderTextColor="#3A3E45"
+                    placeholderTextColor={C.faint}
                     maxLength={24}
                   />
                   <Pressable
@@ -160,7 +147,7 @@ export default function SettingsScreen() {
                     <Feather
                       name="trash-2"
                       size={18}
-                      color={parts.length <= 1 ? '#2A2D33' : '#8A8F98'}
+                      color={parts.length <= 1 ? C.border2 : C.text2}
                     />
                   </Pressable>
                 </View>
@@ -197,7 +184,7 @@ export default function SettingsScreen() {
               style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
               onPress={addPart}
             >
-              <Feather name="plus" size={18} color="#8A8F98" />
+              <Feather name="plus" size={18} color={C.text2} />
               <Text style={styles.addButtonText} maxFontSizeMultiplier={1.3}>
                 Part Ekle
               </Text>
@@ -226,7 +213,7 @@ export default function SettingsScreen() {
                 <Feather
                   name={autoAdvance === opt.value ? 'check-circle' : 'circle'}
                   size={18}
-                  color={autoAdvance === opt.value ? '#E8EAED' : '#4A4F58'}
+                  color={autoAdvance === opt.value ? C.text : C.faint}
                 />
                 <View style={styles.flex}>
                   <Text
@@ -309,13 +296,17 @@ export default function SettingsScreen() {
             </View>
 
             <Pressable
-              style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.saveButton,
+                savedFlash && styles.saveButtonDone,
+                pressed && styles.pressed,
+              ]}
               onPress={onSave}
               disabled={saving}
             >
-              <Feather name="check" size={18} color="#E8EAED" />
+              <Feather name={savedFlash ? 'check-circle' : 'check'} size={18} color="#000000" />
               <Text style={styles.saveButtonText} maxFontSizeMultiplier={1.3}>
-                Kaydet
+                {savedFlash ? 'Kaydedildi' : 'Kaydet'}
               </Text>
             </Pressable>
             <Text style={styles.footnote} maxFontSizeMultiplier={1.3}>
@@ -331,7 +322,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: C.bg,
   },
   safeArea: {
     flex: 1,
@@ -339,52 +330,34 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerButton: {
-    width: 40,
-    alignItems: 'flex-start',
-  },
-  headerTitle: {
-    color: '#E8EAED',
-    fontFamily: UI_FONT,
-    fontSize: 16,
-    letterSpacing: 4,
-    textTransform: 'uppercase',
-  },
   content: {
     paddingHorizontal: 20,
     paddingBottom: 48,
+    paddingTop: 16,
     gap: 12,
     maxWidth: 560,
     width: '100%',
     alignSelf: 'center',
   },
   sectionTitle: {
-    color: '#8A8F98',
-    fontFamily: UI_FONT,
-    fontSize: 13,
-    letterSpacing: 4,
-    textTransform: 'uppercase',
+    color: C.text,
+    fontFamily: F.uiSemi,
+    fontSize: 14,
     marginTop: 8,
   },
   sectionSpacing: {
     marginTop: 24,
   },
   sectionHint: {
-    color: '#5A5F68',
-    fontFamily: UI_FONT,
+    color: C.text3,
+    fontFamily: F.ui,
     fontSize: 12,
     lineHeight: 18,
   },
   partCard: {
+    backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: '#1C1E22',
+    borderColor: C.border,
     borderRadius: 16,
     padding: 14,
     gap: 12,
@@ -395,8 +368,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   partIndex: {
-    color: '#4A4F58',
-    fontFamily: UI_FONT,
+    color: C.faint,
+    fontFamily: F.uiMed,
     fontSize: 14,
     width: 18,
   },
@@ -405,24 +378,19 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   fieldLabel: {
-    color: '#5A5F68',
-    fontFamily: UI_FONT,
-    fontSize: 11,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    color: C.text3,
+    fontFamily: F.uiMed,
+    fontSize: 12,
   },
   input: {
-    color: '#E8EAED',
-    fontFamily: UI_FONT,
+    color: C.text,
+    fontFamily: F.ui,
     fontSize: 15,
     borderWidth: 1,
-    borderColor: '#2A2D33',
+    borderColor: C.border2,
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  inputLabel: {
-    flex: 1,
+    paddingVertical: 9,
   },
   addButton: {
     flexDirection: 'row',
@@ -430,48 +398,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     borderWidth: 1,
-    borderColor: '#2A2D33',
+    borderColor: C.border2,
     borderStyle: 'dashed',
     borderRadius: 16,
     paddingVertical: 14,
   },
   addButtonText: {
-    color: '#8A8F98',
-    fontFamily: UI_FONT,
+    color: C.text2,
+    fontFamily: F.uiMed,
     fontSize: 13,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
   },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: '#1C1E22',
+    borderColor: C.border,
     borderRadius: 16,
     padding: 14,
   },
   optionSelected: {
-    borderColor: '#4A4F58',
+    borderColor: C.border2,
   },
   optionTitle: {
-    color: '#8A8F98',
-    fontFamily: UI_FONT,
+    color: C.text2,
+    fontFamily: F.uiMed,
     fontSize: 14,
   },
   optionTitleSelected: {
-    color: '#E8EAED',
+    color: C.text,
   },
   optionDesc: {
-    color: '#5A5F68',
-    fontFamily: UI_FONT,
+    color: C.text3,
+    fontFamily: F.ui,
     fontSize: 12,
     lineHeight: 17,
     marginTop: 3,
   },
   previewBox: {
     borderWidth: 1,
-    borderColor: '#1C1E22',
+    borderColor: C.border,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -479,13 +446,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#050607',
   },
   previewTime: {
-    fontFamily: 'RobotoMono_200ExtraLight',
+    fontFamily: F.monoThin,
     fontVariant: ['tabular-nums'],
   },
   segment: {
     flexDirection: 'row',
     borderWidth: 1,
-    borderColor: '#2A2D33',
+    borderColor: C.border2,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -498,12 +465,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#1C1E22',
   },
   segmentText: {
-    color: '#8A8F98',
-    fontFamily: UI_FONT,
+    color: C.text2,
+    fontFamily: F.uiMed,
     fontSize: 13,
   },
   segmentTextSelected: {
-    color: '#E8EAED',
+    color: C.text,
   },
   swatchRow: {
     flexDirection: 'row',
@@ -525,26 +492,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    borderWidth: 1,
-    borderColor: '#E8EAED',
+    backgroundColor: C.text,
     borderRadius: 999,
-    paddingVertical: 14,
+    paddingVertical: 15,
     marginTop: 24,
   },
+  saveButtonDone: {
+    backgroundColor: C.green,
+  },
   saveButtonText: {
-    color: '#E8EAED',
-    fontFamily: UI_FONT,
+    color: '#000000',
+    fontFamily: F.uiSemi,
     fontSize: 14,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
   },
   footnote: {
-    color: '#3A3E45',
-    fontFamily: UI_FONT,
+    color: C.faint,
+    fontFamily: F.ui,
     fontSize: 11,
     textAlign: 'center',
   },
   pressed: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
 });

@@ -1,9 +1,4 @@
-import {
-  RobotoMono_200ExtraLight,
-  RobotoMono_300Light,
-} from '@expo-google-fonts/roboto-mono';
 import { Feather } from '@expo/vector-icons';
-import { useFonts } from 'expo-font';
 import { NavigationBar } from 'expo-navigation-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { setStatusBarHidden } from 'expo-status-bar';
@@ -19,71 +14,18 @@ import {
   View,
 } from 'react-native';
 
+import { formatClock, formatDate, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
+import { PillButton } from '@/features/ui/components';
+import { C, F } from '@/features/ui/theme';
 
 // Sayaç çalışırken arayüz (part adı, butonlar) bu süre sonunda kendiliğinden
 // gizlenir; ekrana dokunmak arayüzü açıp kapatır.
 const CHROME_HIDE_DELAY_MS = 10_000;
 
-const TIME_FONT = 'RobotoMono_200ExtraLight';
-const UI_FONT = 'RobotoMono_300Light';
-
-function formatTime(totalSeconds: number) {
-  const mm = Math.floor(totalSeconds / 60);
-  const ss = totalSeconds % 60;
-  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-}
-
-const MONTHS = [
-  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
-];
-const WEEKDAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
-
-// "13 Ekim Cumartesi" — sabit Türkçe adlar, cihaz diline bağımlı değil.
-function formatDate(d: Date) {
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${WEEKDAYS[d.getDay()]}`;
-}
-
-function formatClock(d: Date) {
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-type IconButtonProps = {
-  icon: keyof typeof Feather.glyphMap;
-  label: string;
-  onPress: () => void;
-  primary?: boolean;
-};
-
-function IconButton({ icon, label, onPress, primary }: IconButtonProps) {
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.button,
-        primary && styles.buttonPrimary,
-        pressed && styles.pressed,
-      ]}
-      onPress={onPress}
-    >
-      <Feather name={icon} size={18} color={primary ? '#E8EAED' : '#8A8F98'} />
-      <Text
-        style={[styles.buttonText, primary && styles.buttonPrimaryText]}
-        maxFontSizeMultiplier={1.3}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-export default function TimerScreen() {
-  const [fontsLoaded] = useFonts({
-    RobotoMono_200ExtraLight,
-    RobotoMono_300Light,
-  });
+export default function FullscreenTimerScreen() {
   const router = useRouter();
   const timer = useTimer();
   const { settings } = useTimerSettings();
@@ -105,9 +47,9 @@ export default function TimerScreen() {
   );
 
   // Rakamlar hem dikeyde hem yatayda taşmadan sığsın: genişlik sınırı
-  // (5 karakter × 0.6em mono) ve dikey bütçe (2 × chrome 96 + boşluklar 48
-  // + tarih satırı, satır yüksekliği ≈ 1.32em) birlikte hesaplanır; kullanıcı
-  // boyut tercihi bu sığan üst sınırın yüzdesi olarak uygulanır (asla taşmaz).
+  // (5 karakter × 0.6em mono) ve dikey bütçe (2 × chrome 96 + boşluklar
+  // + saat/tarih satırları, satır yüksekliği ≈ 1.32em) birlikte hesaplanır;
+  // kullanıcı boyut tercihi bu sığan üst sınırın yüzdesi olarak uygulanır.
   const fitFontSize = Math.max(48, Math.min(200, width * 0.3, (height - 300) / 1.32));
   const timeFontSize = fitFontSize * DISPLAY_SIZE_SCALE[settings.display.size];
   const clockFontSize = Math.max(18, Math.round(timeFontSize * 0.3));
@@ -207,10 +149,6 @@ export default function TimerScreen() {
     }
   }, [timer.alarmActive, timer.acknowledgeAlarm, running]);
 
-  if (!fontsLoaded) {
-    return <View style={styles.screen} />;
-  }
-
   const parts = timer.parts;
   const phase = parts[timer.phaseIndex];
   const nextPart = between ? parts[timer.phaseIndex + 1] : null;
@@ -227,7 +165,7 @@ export default function TimerScreen() {
 
   return (
     <Pressable style={styles.screen} onPress={onScreenPress} android_disableSound>
-      {/* Üst köşe: ana sayfaya dönüş (oturum devam eder) */}
+      {/* Üst köşe: sekmelere dönüş (oturum devam eder) */}
       <Animated.View
         style={[styles.backWrap, { opacity: chromeOpacity }]}
         pointerEvents={chromeVisible ? 'auto' : 'none'}
@@ -237,7 +175,7 @@ export default function TimerScreen() {
           hitSlop={12}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
-          <Feather name="arrow-left" size={20} color="#8A8F98" />
+          <Feather name="minimize" size={19} color={C.text2} />
         </Pressable>
       </Animated.View>
 
@@ -262,8 +200,8 @@ export default function TimerScreen() {
         </View>
       </Animated.View>
 
-      {/* Rakamlar + tarih tek grup: soluklaştırma ve piksel kaydırma
-          ikisini birden kapsar. */}
+      {/* Rakamlar + saat + tarih tek grup: soluklaştırma ve piksel kaydırma
+          üçünü birden kapsar. */}
       <Animated.View
         style={[
           styles.timeGroup,
@@ -281,7 +219,6 @@ export default function TimerScreen() {
         >
           {formatTime(timer.secondsLeft)}
         </Text>
-        {/* Güncel saat — zamanlayıcı ile tarih arasında. */}
         <Text
           style={[styles.clock, { fontSize: clockFontSize }]}
           numberOfLines={1}
@@ -304,7 +241,7 @@ export default function TimerScreen() {
       >
         {timer.alarmActive && (
           <View style={styles.hintRow}>
-            <Feather name="bell-off" size={15} color="#B8860B" />
+            <Feather name="bell-off" size={15} color={C.amber} />
             <Text style={styles.hint} maxFontSizeMultiplier={1.3}>
               Susturmak için dokun
             </Text>
@@ -312,7 +249,7 @@ export default function TimerScreen() {
         )}
 
         {timer.status === 'idle' && (
-          <IconButton icon="play" label="Başlat" onPress={timer.start} primary />
+          <PillButton icon="play" label="Başlat" onPress={timer.start} primary />
         )}
 
         {/* Partlar arası bekleme: Devam ile geç; otomatik modda alarm bitince
@@ -325,8 +262,8 @@ export default function TimerScreen() {
               </Text>
             )}
             <View style={styles.buttonRow}>
-              <IconButton icon="play" label="Devam" onPress={timer.advance} primary />
-              <IconButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+              <PillButton icon="play" label="Devam" onPress={timer.advance} primary />
+              <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
             </View>
           </>
         )}
@@ -335,20 +272,20 @@ export default function TimerScreen() {
             aceleyle Sıfırla'ya basılıp seans kaybedilmez. */}
         {running && !timer.alarmActive && (
           <View style={styles.buttonRow}>
-            <IconButton icon="pause" label="Duraklat" onPress={timer.pause} />
-            <IconButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+            <PillButton icon="pause" label="Duraklat" onPress={timer.pause} />
+            <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
           </View>
         )}
 
         {timer.status === 'paused' && (
           <View style={styles.buttonRow}>
-            <IconButton icon="play" label="Devam" onPress={timer.resume} primary />
-            <IconButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+            <PillButton icon="play" label="Devam" onPress={timer.resume} primary />
+            <PillButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
           </View>
         )}
 
         {timer.status === 'done' && !timer.alarmActive && (
-          <IconButton icon="refresh-ccw" label="Yeniden Başlat" onPress={timer.reset} primary />
+          <PillButton icon="refresh-ccw" label="Yeniden Başlat" onPress={timer.reset} primary />
         )}
       </Animated.View>
     </Pressable>
@@ -358,7 +295,7 @@ export default function TimerScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: C.bg,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 24,
@@ -385,8 +322,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   phaseLabel: {
-    color: '#8A8F98',
-    fontFamily: UI_FONT,
+    color: C.text2,
+    fontFamily: F.mono,
     fontSize: 20,
     letterSpacing: 8,
     textTransform: 'uppercase',
@@ -405,32 +342,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#4A4F58',
   },
   dotActive: {
-    backgroundColor: '#E8EAED',
+    backgroundColor: C.text,
   },
   timeGroup: {
     alignItems: 'center',
     gap: 6,
   },
   time: {
-    fontFamily: TIME_FONT,
+    fontFamily: F.monoThin,
     fontVariant: ['tabular-nums'],
     paddingHorizontal: 16,
   },
   clock: {
     color: '#B6BBC2',
-    fontFamily: UI_FONT,
+    fontFamily: F.mono,
     fontVariant: ['tabular-nums'],
     letterSpacing: 3,
     marginTop: 4,
   },
   date: {
-    color: '#8A8F98',
-    fontFamily: UI_FONT,
+    color: C.text2,
+    fontFamily: F.mono,
     letterSpacing: 2,
   },
   model: {
-    color: '#5A5F68',
-    fontFamily: UI_FONT,
+    color: C.text3,
+    fontFamily: F.mono,
     fontSize: 13,
     letterSpacing: 1,
     textAlign: 'center',
@@ -442,38 +379,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   hint: {
-    color: '#B8860B',
-    fontFamily: UI_FONT,
+    color: C.amber,
+    fontFamily: F.mono,
     fontSize: 13,
     letterSpacing: 1,
   },
   buttonRow: {
     flexDirection: 'row',
     gap: 16,
-  },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#2A2D33',
-    borderRadius: 999,
-    paddingHorizontal: 26,
-    paddingVertical: 13,
-  },
-  buttonPrimary: {
-    borderColor: '#E8EAED',
-    paddingHorizontal: 34,
-  },
-  buttonText: {
-    color: '#8A8F98',
-    fontFamily: UI_FONT,
-    fontSize: 14,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  buttonPrimaryText: {
-    color: '#E8EAED',
   },
   pressed: {
     opacity: 0.6,
