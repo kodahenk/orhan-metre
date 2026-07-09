@@ -100,6 +100,9 @@ export default function TimerScreen() {
   const [chromeVisible, setChromeVisible] = useState(true);
   const [revealNonce, setRevealNonce] = useState(0);
   const chromeOpacity = useAnimatedValue(1);
+  const dimOpacity = useAnimatedValue(1);
+  const shiftX = useAnimatedValue(0);
+  const shiftY = useAnimatedValue(0);
 
   useEffect(() => {
     Animated.timing(chromeOpacity, {
@@ -108,6 +111,36 @@ export default function TimerScreen() {
       useNativeDriver: true,
     }).start();
   }, [chromeVisible, chromeOpacity]);
+
+  // AMOLED koruması 1 — soluklaştırma: arayüz gizliyken rakamlar %65
+  // parlaklığa iner (panel eskimesi + pil); dokununca tam parlaklığa döner.
+  useEffect(() => {
+    Animated.timing(dimOpacity, {
+      toValue: chromeVisible ? 1 : 0.65,
+      duration: 600,
+      useNativeDriver: true,
+    }).start();
+  }, [chromeVisible, dimOpacity]);
+
+  // AMOLED koruması 2 — piksel kaydırma: uzun oturumlarda rakamlar hep aynı
+  // piksellerde durmasın diye gizliyken her 60 sn'de bir yumuşak geçişle
+  // ±8/±6 piksellik rastgele konuma kayar; arayüz açılınca merkeze döner.
+  useEffect(() => {
+    const glide = (x: number, y: number) =>
+      Animated.parallel([
+        Animated.timing(shiftX, { toValue: x, duration: 1000, useNativeDriver: true }),
+        Animated.timing(shiftY, { toValue: y, duration: 1000, useNativeDriver: true }),
+      ]).start();
+
+    if (chromeVisible) {
+      glide(0, 0);
+      return;
+    }
+    const move = () => glide((Math.random() * 2 - 1) * 8, (Math.random() * 2 - 1) * 6);
+    move();
+    const id = setInterval(move, 60_000);
+    return () => clearInterval(id);
+  }, [chromeVisible, shiftX, shiftY]);
 
   // Çalışırken 10 sn hareketsizlik sonrası arayüzü gizle.
   // Alarm çalarken gizleme askıya alınır: "Susturmak için dokun" ipucu
@@ -199,14 +232,22 @@ export default function TimerScreen() {
         </View>
       </Animated.View>
 
-      <Text
-        style={[styles.time, { fontSize: timeFontSize, color: timeColor }]}
+      <Animated.Text
+        style={[
+          styles.time,
+          {
+            fontSize: timeFontSize,
+            color: timeColor,
+            opacity: dimOpacity,
+            transform: [{ translateX: shiftX }, { translateY: shiftY }],
+          },
+        ]}
         numberOfLines={1}
         adjustsFontSizeToFit
         maxFontSizeMultiplier={1.1}
       >
         {formatTime(timer.secondsLeft)}
-      </Text>
+      </Animated.Text>
 
       <Animated.View
         style={[styles.chrome, { opacity: chromeOpacity }]}
