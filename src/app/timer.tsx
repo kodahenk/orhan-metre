@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: R.md,
     borderWidth: 1,
     borderColor: D.dotOff,
     alignItems: 'center',

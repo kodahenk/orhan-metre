@@ -19,7 +19,7 @@ export const L = {
   selected: '#F0F7FF',
   ink: '#171717',
   ink2: '#4D4D4D',
-  muted: '#6B7280',
+  muted: '#4D4D4D', // ink2 ile ayni — rampa disina cikilmaz,
   tertiary: '#8F8F8F',
   accent: '#0070F3',
   accentPressed: '#0761D1',

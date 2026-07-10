@@ -167,7 +167,6 @@ const styles = StyleSheet.create({
   progressWrap: {
     width: 52,
     height: 4,
-    borderRadius: 2,
     backgroundColor: L.hairline,
     overflow: 'hidden',
   },
