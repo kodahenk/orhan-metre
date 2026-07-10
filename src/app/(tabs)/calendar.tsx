@@ -36,7 +36,7 @@ const MODES: { key: Mode; label: string }[] = [
 type DatedTask = { project: Project; task: Task };
 
 export default function CalendarScreen() {
-  const { projects, addTask, updateTask } = useProjects();
+  const { projects, tasks, addTask, updateTask } = useProjects();
   const [mode, setMode] = useState<Mode>('hafta');
   const [selectedKey, setSelectedKey] = useState(() => dateKey(new Date()));
   const [newTask, setNewTask] = useState('');
@@ -44,19 +44,20 @@ export default function CalendarScreen() {
   const selected = parseDateKey(selectedKey);
   const todayKey = dateKey(new Date());
 
-  // Tarihli görevler: 'YYYY-MM-DD' → görev listesi.
+  // Tarihli görevler: 'YYYY-MM-DD' → görev listesi (alt görevler dahil).
   const tasksByDate = useMemo(() => {
+    const projectById = new Map(projects.map((p) => [p.id, p]));
     const map = new Map<string, DatedTask[]>();
-    for (const project of projects) {
-      for (const task of project.tasks) {
-        if (!task.dueDate) continue;
-        const list = map.get(task.dueDate) ?? [];
-        list.push({ project, task });
-        map.set(task.dueDate, list);
-      }
+    for (const task of tasks) {
+      if (!task.dueDate) continue;
+      const project = projectById.get(task.projectId);
+      if (!project) continue;
+      const list = map.get(task.dueDate) ?? [];
+      list.push({ project, task });
+      map.set(task.dueDate, list);
     }
     return map;
-  }, [projects]);
+  }, [projects, tasks]);
 
   const dayTasks = tasksByDate.get(selectedKey) ?? [];
 
@@ -72,7 +73,7 @@ export default function CalendarScreen() {
   const submitTask = () => {
     const title = newTask.trim();
     if (!title || projects.length === 0) return;
-    addTask(projects[0].id, title, selectedKey);
+    addTask(projects[0].id, null, title, selectedKey);
     setNewTask('');
   };
 
@@ -272,7 +273,7 @@ export default function CalendarScreen() {
                   <View key={task.id} style={[styles.taskRow, i > 0 && styles.rowSeparator]}>
                     <Checkbox
                       checked={task.done}
-                      onPress={() => updateTask(project.id, task.id, { done: !task.done })}
+                      onPress={() => updateTask(task.id, { done: !task.done })}
                     />
                     <View style={styles.flex}>
                       <Text

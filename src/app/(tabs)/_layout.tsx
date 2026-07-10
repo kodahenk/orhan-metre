@@ -45,6 +45,10 @@ export default function TabsLayout() {
         options={{ title: 'Zamanlayıcı', tabBarIcon: tabIcon('clock') }}
       />
       <Tabs.Screen
+        name="reports"
+        options={{ title: 'Rapor', tabBarIcon: tabIcon('bar-chart-2') }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{ title: 'Ayarlar', tabBarIcon: tabIcon('settings') }}
       />

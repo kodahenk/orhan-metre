@@ -1,27 +1,37 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { formatClock, formatDate, formatTime } from '@/features/timer/format';
+import { useProjects } from '@/features/projects/projects-context';
+import { formatClock, formatDate, formatDuration, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
-import { Button, HeaderIconButton, ScreenHeader } from '@/features/ui/components';
+import {
+  Button,
+  HeaderIconButton,
+  PickerSheet,
+  ScreenHeader,
+  type PickerOption,
+} from '@/features/ui/components';
 import { F, L } from '@/features/ui/theme';
+
+const NO_PROJECT_KEY = '__none__';
 
 export default function TimerTabScreen() {
   const router = useRouter();
   const timer = useTimer();
   const { settings } = useTimerSettings();
+  const { projects } = useProjects();
   const { width, height } = useWindowDimensions();
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
 
   const running = timer.status === 'running';
   const between = timer.status === 'between';
+  const idle = timer.status === 'idle';
 
-  // Sekme çubuğu + başlık + kontroller varken rakamlara kalan alan daha dar;
-  // tam ekrandakiyle aynı sığdırma mantığı, daha küçük bütçeyle.
   const fitFontSize = Math.max(40, Math.min(140, width * 0.24, (height - 430) / 1.32));
   const timeFontSize = fitFontSize * DISPLAY_SIZE_SCALE[settings.display.size];
   const clockFontSize = Math.max(15, Math.round(timeFontSize * 0.28));
@@ -43,13 +53,30 @@ export default function TimerTabScreen() {
   const nextPart = between ? parts[timer.phaseIndex + 1] : null;
 
   const topLabel = (() => {
-    if (timer.status === 'idle') return 'Hazır';
+    if (idle) return 'Hazır';
     if (timer.status === 'done') return 'Tamamlandı';
     if (between && nextPart) return `Sıradaki: ${nextPart.label}`;
     return phase.label;
   })();
 
   const activeDot = between ? timer.phaseIndex + 1 : timer.phaseIndex;
+
+  // Proje seçici: üst projeler + altında girintili alt projeler + "Projesiz".
+  const projectOptions: PickerOption[] = useMemo(() => {
+    const options: PickerOption[] = [{ key: NO_PROJECT_KEY, label: 'Projesiz' }];
+    for (const parent of projects.filter((p) => !p.parentId)) {
+      options.push({ key: parent.id, label: parent.name, color: parent.color });
+      for (const child of projects.filter((p) => p.parentId === parent.id)) {
+        options.push({ key: child.id, label: child.name, color: child.color, indent: true });
+      }
+    }
+    return options;
+  }, [projects]);
+
+  const findProject = (id: string | null) => projects.find((p) => p.id === id) ?? null;
+  const pendingProject = findProject(timer.pendingProjectId);
+  const lockedProject = findProject(timer.sessionProjectId);
+  const lastSavedProject = timer.lastSaved ? findProject(timer.lastSaved.projectId) : null;
 
   return (
     <View style={styles.screen}>
@@ -68,14 +95,24 @@ export default function TimerTabScreen() {
             <Text style={styles.phaseLabel} maxFontSizeMultiplier={1.3}>
               {topLabel}
             </Text>
+            {/* Oturumda kilitli proje etiketi */}
+            {!idle && lockedProject && (
+              <View style={styles.lockedProjectRow}>
+                <View style={[styles.projectDot, { backgroundColor: lockedProject.color }]} />
+                <Text style={styles.lockedProjectText} maxFontSizeMultiplier={1.2}>
+                  {lockedProject.name}
+                </Text>
+              </View>
+            )}
             <View style={styles.dots}>
               {parts.map((p, i) => (
                 <View
                   key={p.id}
                   style={[
                     styles.dot,
+                    p.type === 'break' && styles.dotBreak,
                     i < activeDot && styles.dotPast,
-                    i === activeDot && timer.status !== 'idle' && styles.dotActive,
+                    i === activeDot && !idle && styles.dotActive,
                   ]}
                 />
               ))}
@@ -117,8 +154,28 @@ export default function TimerTabScreen() {
               </View>
             )}
 
-            {timer.status === 'idle' && (
-              <Button icon="play" label="Başlat" onPress={timer.start} variant="primary" />
+            {idle && (
+              <>
+                {/* Proje seçimi — oturum bu projeye yazılır */}
+                <Pressable
+                  style={({ pressed }) => [styles.projectChip, pressed && styles.chipPressed]}
+                  onPress={() => setProjectPickerOpen(true)}
+                >
+                  {pendingProject ? (
+                    <View style={[styles.projectDot, { backgroundColor: pendingProject.color }]} />
+                  ) : (
+                    <Feather name="folder" size={14} color={L.ink2} />
+                  )}
+                  <Text style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
+                    {pendingProject ? pendingProject.name : 'Projesiz'}
+                  </Text>
+                  <Feather name="chevron-down" size={15} color={L.tertiary} />
+                </Pressable>
+                <Text style={styles.presetCaption} maxFontSizeMultiplier={1.2}>
+                  Önayar: {timer.pendingPresetName}
+                </Text>
+                <Button icon="play" label="Başlat" onPress={timer.start} variant="primary" />
+              </>
             )}
 
             {between && !timer.alarmActive && (
@@ -143,16 +200,33 @@ export default function TimerTabScreen() {
             )}
 
             {timer.status === 'done' && !timer.alarmActive && (
-              <Button
-                icon="refresh-ccw"
-                label="Yeniden Başlat"
-                onPress={timer.reset}
-                variant="primary"
-              />
+              <>
+                {timer.lastSaved && (
+                  <Text style={styles.savedLine} maxFontSizeMultiplier={1.2}>
+                    Kaydedildi: {lastSavedProject ? lastSavedProject.name : 'Projesiz'} ·{' '}
+                    {formatDuration(timer.lastSaved.workSeconds)} çalışma
+                  </Text>
+                )}
+                <Button
+                  icon="refresh-ccw"
+                  label="Yeniden Başlat"
+                  onPress={timer.reset}
+                  variant="primary"
+                />
+              </>
             )}
           </View>
         </Pressable>
       </SafeAreaView>
+
+      <PickerSheet
+        visible={projectPickerOpen}
+        title="Proje seç"
+        options={projectOptions}
+        selectedKey={timer.pendingProjectId ?? NO_PROJECT_KEY}
+        onSelect={(key) => timer.setPendingProject(key === NO_PROJECT_KEY ? null : key)}
+        onClose={() => setProjectPickerOpen(false)}
+      />
     </View>
   );
 }
@@ -173,7 +247,7 @@ const styles = StyleSheet.create({
   },
   topGroup: {
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
   },
   phaseLabel: {
     color: L.ink2,
@@ -181,6 +255,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
+  },
+  lockedProjectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lockedProjectText: {
+    color: L.tertiary,
+    fontFamily: F.uiMed,
+    fontSize: 12,
   },
   dots: {
     flexDirection: 'row',
@@ -192,11 +276,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: L.hairline,
   },
+  dotBreak: {
+    borderWidth: 1,
+    borderColor: L.borderActive,
+    backgroundColor: L.surface,
+  },
   dotPast: {
     backgroundColor: L.borderActive,
   },
   dotActive: {
     backgroundColor: L.accent,
+    borderWidth: 0,
   },
   timeGroup: {
     alignItems: 'center',
@@ -222,9 +312,43 @@ const styles = StyleSheet.create({
   },
   controls: {
     alignItems: 'center',
-    gap: 16,
-    minHeight: 96,
+    gap: 12,
+    minHeight: 132,
     justifyContent: 'center',
+  },
+  projectChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 36,
+    paddingHorizontal: 12,
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: 4,
+  },
+  chipPressed: {
+    backgroundColor: L.pressed,
+  },
+  projectChipText: {
+    color: L.ink,
+    fontFamily: F.uiMed,
+    fontSize: 13,
+  },
+  projectDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  presetCaption: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 12,
+  },
+  savedLine: {
+    color: L.success,
+    fontFamily: F.uiMed,
+    fontSize: 13,
   },
   hintRow: {
     flexDirection: 'row',

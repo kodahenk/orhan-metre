@@ -6,7 +6,6 @@ import {
   MAX_SCHEDULED_PER_BOUNDARY,
   partAlarmMs,
   partDurationMs,
-  totalMinutes,
   type Part,
 } from './settings';
 
@@ -82,9 +81,10 @@ function boundaryContent(parts: Part[], boundaryIndex: number, autoAdvance: bool
       sound: 'default' as const,
     };
   }
+  const total = Math.round(parts.reduce((sum, p) => sum + p.minutes, 0));
   return {
     title: 'Çalışma tamamlandı 🎉',
-    body: `${totalMinutes(parts)} dakikalık seans bitti.`,
+    body: `${total} dakikalık seans bitti.`,
     sound: 'default' as const,
   };
 }

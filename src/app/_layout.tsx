@@ -13,6 +13,7 @@ import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { ProjectsProvider } from '@/features/projects/projects-context';
+import { SessionsProvider } from '@/features/sessions/sessions-context';
 import { SettingsProvider } from '@/features/timer/settings-context';
 import { TimerProvider } from '@/features/timer/timer-context';
 import { L } from '@/features/ui/theme';
@@ -33,7 +34,8 @@ export default function RootLayout() {
   return (
     <SettingsProvider>
       <ProjectsProvider>
-        <TimerProvider>
+        <SessionsProvider>
+          <TimerProvider>
           <ThemeProvider value={DefaultTheme}>
             {/* Light ekranlarda koyu durum çubuğu simgeleri;
                 tam ekran zamanlayıcı odaktayken çubukları kendisi gizler. */}
@@ -45,7 +47,8 @@ export default function RootLayout() {
               }}
             />
           </ThemeProvider>
-        </TimerProvider>
+          </TimerProvider>
+        </SessionsProvider>
       </ProjectsProvider>
     </SettingsProvider>
   );

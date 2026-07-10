@@ -43,3 +43,26 @@ export function startOfWeek(d: Date) {
   copy.setDate(copy.getDate() - day);
   return copy;
 }
+
+/** Saniyeyi "2s 35d" biçimine çevirir (s=saat, d=dakika). */
+export function formatDuration(totalSeconds: number) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h}s ${m}d` : `${h}s`;
+  return `${m}d`;
+}
+
+export function startOfToday() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export function startOfMonth() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+export function startOfYear() {
+  const d = new Date();
+  return new Date(d.getFullYear(), 0, 1);
+}

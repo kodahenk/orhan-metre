@@ -188,3 +188,155 @@ const styles = StyleSheet.create({
     borderColor: L.accent,
   },
 });
+
+// --- PickerSheet: alttan açılan basit seçim listesi (Modal tabanlı) ---
+
+import { Modal, ScrollView } from 'react-native';
+
+export type PickerOption = {
+  key: string;
+  label: string;
+  color?: string;
+  indent?: boolean;
+  caption?: string;
+};
+
+type PickerSheetProps = {
+  visible: boolean;
+  title: string;
+  options: PickerOption[];
+  selectedKey?: string | null;
+  onSelect: (key: string) => void;
+  onClose: () => void;
+};
+
+export function PickerSheet({
+  visible,
+  title,
+  options,
+  selectedKey,
+  onSelect,
+  onClose,
+}: PickerSheetProps) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={sheetStyles.backdrop} onPress={onClose}>
+        <Pressable style={sheetStyles.sheet} onPress={() => {}}>
+          <Text style={sheetStyles.title} maxFontSizeMultiplier={1.2}>
+            {title}
+          </Text>
+          <ScrollView style={sheetStyles.list} bounces={false}>
+            {options.map((opt, i) => {
+              const selected = selectedKey === opt.key;
+              return (
+                <Pressable
+                  key={opt.key}
+                  style={({ pressed }) => [
+                    sheetStyles.row,
+                    i > 0 && sheetStyles.rowSeparator,
+                    opt.indent && sheetStyles.rowIndent,
+                    pressed && sheetStyles.rowPressed,
+                    selected && sheetStyles.rowSelected,
+                  ]}
+                  onPress={() => {
+                    onSelect(opt.key);
+                    onClose();
+                  }}
+                >
+                  {opt.color != null && (
+                    <View style={[sheetStyles.dot, { backgroundColor: opt.color }]} />
+                  )}
+                  <View style={sheetStyles.rowBody}>
+                    <Text
+                      style={[sheetStyles.rowLabel, selected && sheetStyles.rowLabelSelected]}
+                      maxFontSizeMultiplier={1.2}
+                    >
+                      {opt.label}
+                    </Text>
+                    {opt.caption && (
+                      <Text style={sheetStyles.rowCaption} maxFontSizeMultiplier={1.2}>
+                        {opt.caption}
+                      </Text>
+                    )}
+                  </View>
+                  {selected && <Feather name="check" size={17} color={L.accent} />}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: L.surface,
+    borderTopLeftRadius: R.lg,
+    borderTopRightRadius: R.lg,
+    paddingTop: 16,
+    paddingBottom: 24,
+    maxHeight: '70%',
+  },
+  title: {
+    color: L.tertiary,
+    fontFamily: F.uiSemi,
+    fontSize: 13,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  list: {
+    flexGrow: 0,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    minHeight: 48,
+    paddingVertical: 8,
+  },
+  rowSeparator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: L.hairline,
+  },
+  rowIndent: {
+    paddingLeft: 36,
+  },
+  rowPressed: {
+    backgroundColor: L.pressed,
+  },
+  rowSelected: {
+    backgroundColor: L.selected,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  rowBody: {
+    flex: 1,
+  },
+  rowLabel: {
+    color: L.ink,
+    fontFamily: F.uiMed,
+    fontSize: 15,
+  },
+  rowLabelSelected: {
+    color: L.accent,
+  },
+  rowCaption: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 12,
+    marginTop: 2,
+  },
+});

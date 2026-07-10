@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 
+import { useProjects } from '@/features/projects/projects-context';
 import { formatClock, formatDate, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
@@ -57,6 +58,10 @@ export default function FullscreenTimerScreen() {
   const router = useRouter();
   const timer = useTimer();
   const { settings } = useTimerSettings();
+  const { projects } = useProjects();
+  const sessionProject = timer.sessionProjectId
+    ? projects.find((p) => p.id === timer.sessionProjectId)
+    : null;
   const running = timer.status === 'running';
   const between = timer.status === 'between';
   const { width, height } = useWindowDimensions();
@@ -214,6 +219,14 @@ export default function FullscreenTimerScreen() {
         <Text style={styles.phaseLabel} maxFontSizeMultiplier={1.3}>
           {topLabel}
         </Text>
+        {sessionProject && (
+          <View style={styles.projectRow}>
+            <View style={[styles.projectDot, { backgroundColor: sessionProject.color }]} />
+            <Text style={styles.projectText} maxFontSizeMultiplier={1.2}>
+              {sessionProject.name}
+            </Text>
+          </View>
+        )}
         <View style={styles.dots}>
           {parts.map((p, i) => (
             <View
@@ -355,6 +368,22 @@ const styles = StyleSheet.create({
     fontSize: 20,
     letterSpacing: 8,
     textTransform: 'uppercase',
+  },
+  projectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  projectDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  projectText: {
+    color: D.text3,
+    fontFamily: F.mono,
+    fontSize: 12,
+    letterSpacing: 1,
   },
   dots: {
     flexDirection: 'row',
