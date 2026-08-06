@@ -144,8 +144,13 @@ export function sanitizePresets(raw: unknown): TimerPreset[] {
 // kaydetmede diskten de temizlenir; ayrı migrasyon gerekmez.
 function sanitizeDisplay(raw: unknown): TimerDisplay {
   const obj = (raw ?? {}) as Partial<TimerDisplay>;
+  // Object.keys ile kontrol: 'in' operatörü prototip zincirini de kabul
+  // ederdi (ör. bozuk depodaki "toString" elemeden geçerdi).
   return {
-    size: obj.size && obj.size in DISPLAY_SIZE_SCALE ? obj.size : DEFAULT_DISPLAY.size,
+    size:
+      obj.size && Object.keys(DISPLAY_SIZE_SCALE).includes(obj.size)
+        ? obj.size
+        : DEFAULT_DISPLAY.size,
   };
 }
 

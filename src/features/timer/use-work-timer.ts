@@ -352,7 +352,12 @@ export function useWorkTimer() {
   }, [syncNow, stopAlarm]);
 
   useEffect(() => {
-    if (statusRef.current === 'idle') void cancelAllSessionAlarms();
+    // Soğuk açılış temizliği: önceki süreçten kalmış alarm bildirimleri ve
+    // (süreç ölümünde asılı kalmış olabilecek) mini sayaç bildirimi süpürülür.
+    if (statusRef.current === 'idle') {
+      hideMiniTimer();
+      void cancelAllSessionAlarms();
+    }
   }, []);
 
   useEffect(() => {

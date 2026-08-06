@@ -30,78 +30,97 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * - Overlay: "Diğer uygulamaların üzerinde göster" izniyle sol üstte yarı
  *   saydam, kendi kendine tikleyen (Chronometer) geri sayım. Uygulama arka
  *   plana geçince JS zamanlayıcıları durduğu için tikleme tamamen native
- *   taraftadır; JS yalnızca bitiş zaman damgasını (endsAt) verir.
- * - Bildirim: SystemUI sürecinde tikleyen kronometreli kalıcı bildirim —
- *   overlay izni yoksa ya da sistem uygulama sürecini dondurursa yedek olur.
+ *   taraftadır; JS yalnızca bitiş zaman damgasını (endsAt) verir. 0'a
+ *   ulaşınca kendiliğinden kaldırılır — Chronometer aksi halde negatife
+ *   sayarak devam ederdi.
+ * - Bildirim: SystemUI sürecinde tikleyen kronometreli kalıcı bildirim;
+ *   setTimeoutAfter sayesinde süreç ölse bile 0 anında sistem tarafından
+ *   düşürülür (yetim kalmaz).
+ *
+ * Tüm giriş noktaları runCatching + nullable context ile korunur: React
+ * context'in yıkıldığı reload/teardown yarışlarında ana thread'de
+ * yakalanmamış istisna (çökme) oluşmaz.
  */
 class MiniTimerModule : Module() {
   private var overlayView: LinearLayout? = null
-  private val mainHandler = Handler(Looper.getMainLooper())
 
-  private val context: Context
-    get() = requireNotNull(appContext.reactContext)
+  // Kaldırma, reactContext öldükten sonra da çalışabilsin diye WindowManager
+  // eklenirken saklanır (dev reload'da overlay sızıntısı kalmasın).
+  private var overlayWindowManager: WindowManager? = null
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private val hideOverlayAtZero = Runnable { hideOverlayInternal() }
+
+  private val context: Context?
+    get() = appContext.reactContext
 
   override fun definition() = ModuleDefinition {
     Name("MiniTimer")
 
     Function("hasOverlayPermission") {
-      Settings.canDrawOverlays(context)
+      context?.let { Settings.canDrawOverlays(it) } ?: false
     }
 
     Function("requestOverlayPermission") {
-      val intent = Intent(
-        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-        Uri.parse("package:${context.packageName}"),
-      ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      context.startActivity(intent)
+      runCatching {
+        val ctx = context ?: return@runCatching
+        val intent = Intent(
+          Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+          Uri.parse("package:${ctx.packageName}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(intent)
+      }
+      Unit
     }
 
     Function("showOverlay") { endsAt: Double, label: String ->
-      mainHandler.post { showOverlayInternal(endsAt.toLong(), label) }
+      mainHandler.post { runCatching { showOverlayInternal(endsAt.toLong(), label) } }
+      Unit
     }
 
     Function("hideOverlay") {
-      mainHandler.post { hideOverlayInternal() }
+      mainHandler.post { runCatching { hideOverlayInternal() } }
+      Unit
     }
 
     Function("showCountdownNotification") { endsAt: Double, title: String ->
-      showNotificationInternal(endsAt.toLong(), title)
+      runCatching { showNotificationInternal(endsAt.toLong(), title) }
+      Unit
     }
 
     Function("hideCountdownNotification") {
-      runCatching { notificationManager.cancel(NOTIFICATION_ID) }
+      runCatching { cancelNotification() }
+      Unit
     }
 
     OnDestroy {
       mainHandler.post { runCatching { hideOverlayInternal() } }
-      runCatching { notificationManager.cancel(NOTIFICATION_ID) }
+      runCatching { cancelNotification() }
     }
   }
 
-  private val notificationManager: NotificationManager
-    get() = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-  private fun dp(value: Float): Int =
+  private fun dp(ctx: Context, value: Float): Int =
     TypedValue
-      .applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, context.resources.displayMetrics)
+      .applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, ctx.resources.displayMetrics)
       .toInt()
 
   private fun showOverlayInternal(endsAtMs: Long, label: String) {
-    if (!Settings.canDrawOverlays(context)) return
+    val ctx = context ?: return
+    if (endsAtMs <= System.currentTimeMillis()) return
+    if (!Settings.canDrawOverlays(ctx)) return
     hideOverlayInternal()
-    val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-    val container = LinearLayout(context).apply {
+    val container = LinearLayout(ctx).apply {
       orientation = LinearLayout.VERTICAL
-      setPadding(dp(12f), dp(6f), dp(12f), dp(7f))
+      setPadding(dp(ctx, 12f), dp(ctx, 6f), dp(ctx, 12f), dp(ctx, 7f))
       background = GradientDrawable().apply {
         setColor(Color.argb(140, 0, 0, 0)) // yarı saydam siyah zemin
-        cornerRadius = dp(10f).toFloat()
+        cornerRadius = dp(ctx, 10f).toFloat()
       }
     }
     if (label.isNotBlank()) {
       container.addView(
-        TextView(context).apply {
+        TextView(ctx).apply {
           text = label
           setTextColor(Color.argb(210, 255, 255, 255))
           textSize = 11f
@@ -109,7 +128,7 @@ class MiniTimerModule : Module() {
       )
     }
     container.addView(
-      Chronometer(context).apply {
+      Chronometer(ctx).apply {
         isCountDown = true
         base = SystemClock.elapsedRealtime() + (endsAtMs - System.currentTimeMillis())
         setTextColor(Color.WHITE)
@@ -134,35 +153,50 @@ class MiniTimerModule : Module() {
       PixelFormat.TRANSLUCENT,
     ).apply {
       gravity = Gravity.TOP or Gravity.START
-      x = dp(16f)
-      y = dp(96f) // sol üstte, durum çubuğunun biraz altında
+      x = dp(ctx, 16f)
+      y = dp(ctx, 96f) // sol üstte, durum çubuğunun biraz altında
     }
-    runCatching { wm.addView(container, params) }.onSuccess { overlayView = container }
+    runCatching { wm.addView(container, params) }.onSuccess {
+      overlayView = container
+      overlayWindowManager = wm
+      // 0 anında kendiliğinden kalk: negatife sayan bayat sayaç kalmasın.
+      // (Süreç dondurulursa gecikebilir; bildirim ayağı setTimeoutAfter ile
+      // sistem tarafında garanti.)
+      mainHandler.postDelayed(hideOverlayAtZero, endsAtMs - System.currentTimeMillis())
+    }
   }
 
   private fun hideOverlayInternal() {
+    mainHandler.removeCallbacks(hideOverlayAtZero)
     val view = overlayView ?: return
     overlayView = null
-    val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    runCatching { wm.removeView(view) }
+    val wm = overlayWindowManager
+    overlayWindowManager = null
+    runCatching { wm?.removeView(view) }
   }
 
   private fun showNotificationInternal(endsAtMs: Long, title: String) {
+    val ctx = context ?: return
+    val remainingMs = endsAtMs - System.currentTimeMillis()
+    if (remainingMs <= 0) return
+    val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      notificationManager.createNotificationChannel(
+      nm.createNotificationChannel(
         NotificationChannel(CHANNEL_ID, "Mini sayaç", NotificationManager.IMPORTANCE_LOW),
       )
     }
-    val contentIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
+    val contentIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.let {
       PendingIntent.getActivity(
-        context,
+        ctx,
         0,
         it,
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
     }
-    val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-      .setSmallIcon(context.applicationInfo.icon)
+    val notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
+      // Adaptive launcher ikonu durum çubuğunda blob görünür; modülün kendi
+      // monokrom vektörü kullanılır.
+      .setSmallIcon(R.drawable.mini_timer_notification_icon)
       .setContentTitle(title)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
@@ -172,9 +206,18 @@ class MiniTimerModule : Module() {
       .setWhen(endsAtMs)
       .setUsesChronometer(true)
       .setChronometerCountDown(true)
+      // 0 anında sistem bildirimi kendisi düşürür (API 26+); süreç ölse bile
+      // yetim/negatif sayan kalıcı bildirim kalmaz.
+      .setTimeoutAfter(remainingMs)
       .apply { contentIntent?.let { setContentIntent(it) } }
       .build()
-    runCatching { notificationManager.notify(NOTIFICATION_ID, notification) }
+    runCatching { nm.notify(NOTIFICATION_ID, notification) }
+  }
+
+  private fun cancelNotification() {
+    val ctx = context ?: return
+    (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+      .cancel(NOTIFICATION_ID)
   }
 
   companion object {

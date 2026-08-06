@@ -33,10 +33,15 @@ export default function SettingsScreen() {
   const [savedFlash, setSavedFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Ayarlar başka yerde değişirse (ör. önayar silinince) formu tazele.
+  // Ayarlar başka yerde değişirse VEYA diskten geç yüklenirse formun TÜM
+  // alanları tazelenir. Yalnızca activePresetId tazelense, soğuk açılışta
+  // varsayılanlarla dolan form Kaydet'te gerçek tercihleri sessizce ezerdi.
   useEffect(() => {
     setActivePresetId(settings.activePresetId);
-  }, [settings.activePresetId]);
+    setAutoAdvance(settings.autoAdvance);
+    setWorkEndReminder(settings.workEndReminderMinutes);
+    setDisplay(settings.display);
+  }, [settings]);
 
   useEffect(() => {
     return () => {
@@ -218,7 +223,7 @@ export default function SettingsScreen() {
                     <Text style={styles.optionDesc} maxFontSizeMultiplier={1.3}>
                       {overlayGranted
                         ? 'Verildi — mini sayaç ekran üstünde görünecek'
-                        : 'Vermek için dokun; sistem ayarları açılır'}
+                        : "Dokun; açılan listeden orhan-metre'yi seçip izni aç"}
                     </Text>
                   </View>
                 </Pressable>
