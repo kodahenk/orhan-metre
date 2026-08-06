@@ -1,7 +1,0 @@
-expo.modules.minitimer.mini-timer-pngs-0 /Users/devorhan/LearnTest/orhan-metre/modules/mini-timer/android/build/generated/res/pngs/release
-expo.modules.minitimer.mini-timer-resValues-1 /Users/devorhan/LearnTest/orhan-metre/modules/mini-timer/android/build/generated/res/resValues/release
-expo.modules.minitimer.mini-timer-mergeReleaseResources-2 /Users/devorhan/LearnTest/orhan-metre/modules/mini-timer/android/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
-expo.modules.minitimer.mini-timer-mergeReleaseResources-3 /Users/devorhan/LearnTest/orhan-metre/modules/mini-timer/android/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
-expo.modules.minitimer.mini-timer-release-4 /Users/devorhan/LearnTest/orhan-metre/modules/mini-timer/android/build/intermediates/merged_res/release/mergeReleaseResources
-expo.modules.minitimer.mini-timer-main-5 /Users/devorhan/LearnTest/orhan-metre/modules/mini-timer/android/src/main/res
-expo.modules.minitimer.mini-timer-release-6 /Users/devorhan/LearnTest/orhan-metre/modules/mini-timer/android/src/release/res
