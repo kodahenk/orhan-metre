@@ -280,6 +280,16 @@ export default function FullscreenTimerScreen() {
         style={[styles.chrome, { opacity: chromeOpacity }]}
         pointerEvents={chromeVisible ? 'auto' : 'none'}
       >
+        {/* İzin reddedildiyse/desteklenmiyorsa oturum boyunca uyar: arka
+            planda alarm çalmayacak, kullanıcı bunu bilmeli. */}
+        {timer.notificationsGranted === false &&
+          timer.status !== 'idle' &&
+          timer.status !== 'done' && (
+            <Text style={styles.model} maxFontSizeMultiplier={1.2}>
+              Bildirim izni yok — uygulama arka plandayken alarm çalmaz
+            </Text>
+          )}
+
         {timer.alarmActive && (
           <View style={styles.hintRow}>
             <Feather name="bell-off" size={15} color={D.amber} />
@@ -294,10 +304,12 @@ export default function FullscreenTimerScreen() {
         )}
 
         {/* Partlar arası bekleme: Devam ile geç; otomatik modda alarm bitince
-            kendiliğinden geçer. */}
-        {between && (
+            kendiliğinden geçer. Alarm çalarken butonlar gizli (running bloğu
+            ve ana ekranla tutarlı): dokunuş önce susturur, aceleyle Sıfırla'ya
+            basılıp seans kaybedilmez. */}
+        {between && !timer.alarmActive && (
           <>
-            {!timer.alarmActive && timer.autoAdvance && (
+            {timer.autoAdvance && (
               <Text style={styles.model} maxFontSizeMultiplier={1.3}>
                 Alarm süresi dolunca otomatik başlar
               </Text>
@@ -312,10 +324,23 @@ export default function FullscreenTimerScreen() {
         {/* Alarm çalarken butonlar gizli: her dokunuş yalnızca alarmı susturur,
             aceleyle Sıfırla'ya basılıp seans kaybedilmez. */}
         {running && !timer.alarmActive && (
-          <View style={styles.buttonRow}>
-            <TimerButton icon="pause" label="Duraklat" onPress={timer.pause} />
-            <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
-          </View>
+          <>
+            {/* Mola atlanabilir; kalan süre sıradaki ÇALIŞMA partına taşınır
+                (molaya değil — süre mola-mola kayıp yok olmasın). */}
+            {phase.type === 'break' &&
+              parts.slice(timer.phaseIndex + 1).some((p) => p.type === 'work') && (
+                <Text style={styles.model} maxFontSizeMultiplier={1.3}>
+                  Atlarsan kalan süre sıradaki çalışmaya eklenir
+                </Text>
+              )}
+            <View style={styles.buttonRow}>
+              {phase.type === 'break' && (
+                <TimerButton icon="skip-forward" label="Atla" onPress={timer.skipBreak} primary />
+              )}
+              <TimerButton icon="pause" label="Duraklat" onPress={timer.pause} />
+              <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+            </View>
+          </>
         )}
 
         {timer.status === 'paused' && (

@@ -30,7 +30,10 @@ export type TimerStatus = 'idle' | 'running' | 'between' | 'paused' | 'done';
 
 const TICK_MS = 250;
 const KEEP_AWAKE_TAG = 'work-timer';
-const VIBRATION_PATTERN = [0, 600, 400];
+// Titreşim yalnızca part bittiği anda ve sonlu: tekrar bayrağı (repeat)
+// kullanılmaz, böylece susturma kaçırılsa bile titreşim kendiliğinden biter
+// ("takılı kalma" yok). Pencerenin kalanında yalnızca 15 sn'de bir bildirim var.
+const ALARM_VIBRATION_MS = 5_000;
 const LAST_PROJECT_KEY = 'timer-last-project';
 const MIN_RECORDED_WORK_SECONDS = 60;
 
@@ -61,6 +64,9 @@ export function useWorkTimer() {
   // ortasında değişirse yeni değerler bir SONRAKİ oturumda geçerli olur.
   const [sessionParts, setSessionParts] = useState<Part[] | null>(null);
   const [sessionAuto, setSessionAuto] = useState<boolean | null>(null);
+  // null: henüz sorulmadı. false: izin yok/desteklenmiyor → arka planda alarm
+  // çalmayacağı için arayüz kullanıcıyı uyarır.
+  const [notificationsGranted, setNotificationsGranted] = useState<boolean | null>(null);
 
   // Boştaki gösterim: seçili projenin önayarı (yoksa genel varsayılan).
   const pendingPreset: TimerPreset = useMemo(() => {
@@ -85,6 +91,7 @@ export function useWorkTimer() {
   const scheduledRef = useRef<ScheduledAlarms>(new Map());
   const alarmBoundaryRef = useRef<number | null>(null);
   const alarmEndsAtRef = useRef(0);
+  const alarmVibrateEndsAtRef = useRef(0);
   const alarmStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Her durum geçişinde artar; await sonrası bayatlamış devamları geçersiz kılar.
   const epochRef = useRef(0);
@@ -107,12 +114,15 @@ export function useWorkTimer() {
     }
   }, [settings, pendingPreset]);
 
-  // Son kullanılan proje kalıcıdır.
+  // Son kullanılan proje kalıcıdır. Kullanıcı okuma tamamlanmadan seçim
+  // yaptıysa (touched) gecikmiş eski değer seçimi ezmesin.
+  const pendingProjectTouchedRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     Storage.getItem(LAST_PROJECT_KEY)
       .then((raw) => {
-        if (!cancelled && raw) {
+        if (!cancelled && !pendingProjectTouchedRef.current && raw) {
           pendingProjectRef.current = raw === 'null' ? null : raw;
           setPendingProjectIdState(pendingProjectRef.current);
         }
@@ -124,6 +134,7 @@ export function useWorkTimer() {
   }, []);
 
   const setPendingProject = useCallback((projectId: string | null) => {
+    pendingProjectTouchedRef.current = true;
     pendingProjectRef.current = projectId;
     setPendingProjectIdState(projectId);
     void Storage.setItem(LAST_PROJECT_KEY, projectId ?? 'null').catch(() => {});
@@ -137,25 +148,40 @@ export function useWorkTimer() {
     }
     const boundary = alarmBoundaryRef.current;
     alarmBoundaryRef.current = null;
+    alarmVibrateEndsAtRef.current = 0;
     setAlarmActive(false);
     if (boundary != null) void silenceBoundaryAlarms(scheduledRef.current, boundary);
   }, []);
 
+  /** vibrateMs: 5 sn'lik başlangıç titreşiminden geriye kalan kısım (0 = titreme). */
   const startAlarm = useCallback(
-    (boundary: number, windowMs: number) => {
+    (boundary: number, windowMs: number, vibrateMs: number) => {
       stopAlarm();
       alarmBoundaryRef.current = boundary;
       alarmEndsAtRef.current = Date.now() + windowMs;
       setAlarmActive(true);
-      Vibration.vibrate(VIBRATION_PATTERN, true);
+      if (vibrateMs > 0) {
+        alarmVibrateEndsAtRef.current = Date.now() + vibrateMs;
+        // Süreli tek titreşim (Android); iOS süreyi yok sayıp tek kez titrer.
+        Vibration.vibrate(vibrateMs);
+      }
       alarmStopTimer.current = setTimeout(stopAlarm, windowMs);
     },
     [stopAlarm],
   );
 
-  /** Oturumu kayda döker. extraMs: mevcut partın kaydedilecek kısmı. */
+  /**
+   * Oturumu kayda döker. extraMs: mevcut partın kaydedilecek kısmı.
+   * endedAtMs: oturumun GERÇEK bitiş anı — arka planda biten oturum,
+   * uygulamanın açıldığı an değil sınırın geçildiği anla kaydedilsin.
+   */
   const finishSession = useCallback(
-    (finalStatus: 'completed' | 'abandoned', extraMs: number, extraType?: Part['type']) => {
+    (
+      finalStatus: 'completed' | 'abandoned',
+      extraMs: number,
+      extraType?: Part['type'],
+      endedAtMs?: number,
+    ) => {
       if (!sessionActiveRef.current) return;
       sessionActiveRef.current = false;
       let workMs = workMsRef.current;
@@ -169,7 +195,7 @@ export function useWorkTimer() {
         projectId: sessionProjectRef.current,
         presetId: sessionPresetRef.current,
         startedAt: sessionStartedAtRef.current,
-        endedAt: Date.now(),
+        endedAt: endedAtMs ?? Date.now(),
         workSeconds,
         breakSeconds: Math.round(breakMs / 1000),
         completedWorkParts: completedWorkPartsRef.current,
@@ -234,7 +260,9 @@ export function useWorkTimer() {
       const windowMs = partAlarmMs(parts[last.index]);
       const overshoot = now - last.at;
       if (overshoot < windowMs) {
-        startAlarm(last.index, windowMs - overshoot);
+        // Sınır geçileli 5 sn'den fazla olduysa (ör. arka plandan dönüş)
+        // titreşim payı kalmamıştır; yalnızca alarm penceresi işler.
+        startAlarm(last.index, windowMs - overshoot, Math.max(0, ALARM_VIBRATION_MS - overshoot));
       } else {
         void silenceBoundaryAlarms(scheduledRef.current, last.index);
       }
@@ -246,7 +274,9 @@ export function useWorkTimer() {
       setStatus('done');
       setPhaseIndex(parts.length - 1);
       setSecondsLeft(0);
-      finishSession('completed', 0);
+      // finished yalnızca son partın sınırı geçilince true olur → crossed dolu;
+      // bitiş anı "şimdi" değil, son sınırın geçildiği andır.
+      finishSession('completed', 0, undefined, crossed[crossed.length - 1].at);
       return;
     }
 
@@ -284,7 +314,10 @@ export function useWorkTimer() {
         if (remaining <= 0) {
           stopAlarm();
         } else {
-          Vibration.vibrate(VIBRATION_PATTERN, true);
+          // Yalnızca 5 sn'lik başlangıç titreşiminin kalanı devam eder;
+          // pencerenin geri kalanı titreşimsizdir (bildirimler zamanlı).
+          const vibrateLeft = alarmVibrateEndsAtRef.current - Date.now();
+          if (vibrateLeft > 0) Vibration.vibrate(vibrateLeft);
           if (alarmStopTimer.current) clearTimeout(alarmStopTimer.current);
           alarmStopTimer.current = setTimeout(stopAlarm, remaining);
         }
@@ -319,15 +352,32 @@ export function useWorkTimer() {
     };
   }, []);
 
-  const rescheduleFrom = useCallback(async (epoch: number, fromIndex: number, endsAt: number) => {
+  /**
+   * Bildirimleri MEVCUT konumdan zamanlar. Konum parametre olarak alınmaz:
+   * await'ler (izin diyaloğu, toplu iptal) sırasında sayaç tiklemeye devam
+   * eder ve sınır geçilmiş olabilir; await öncesi yakalanmış bayat
+   * index/endsAt ile zamanlamak tüm alarmları kaydırırdı. Konum bu yüzden
+   * iptal await'inden SONRA ref'lerden okunur.
+   */
+  const rescheduleAlarms = useCallback(async (epoch: number) => {
     await cancelAllSessionAlarms();
     if (epochRef.current !== epoch) return;
-    const scheduled = await scheduleSessionAlarms(
-      sessionPartsRef.current,
-      autoAdvanceRef.current,
-      fromIndex,
-      endsAt,
-    );
+    const parts = sessionPartsRef.current;
+    const auto = autoAdvanceRef.current;
+    const st = statusRef.current;
+    let fromIndex = phaseIndexRef.current;
+    let endsAt = endsAtRef.current;
+    if (st === 'between') {
+      // Mevcut sınır çoktan geçti. Otomatik modda sonraki part boşluk bitince
+      // (endsAt) başlar; manuel modda başlangıç bilinemez, "Devam" yeniden
+      // zamanlayacağı için burada zamanlanacak bir şey yok.
+      if (!auto || fromIndex >= parts.length - 1) return;
+      fromIndex += 1;
+      endsAt += partDurationMs(parts[fromIndex]);
+    } else if (st !== 'running') {
+      return; // idle/paused/done: zamanlanacak sınır yok
+    }
+    const scheduled = await scheduleSessionAlarms(parts, auto, fromIndex, endsAt);
     if (epochRef.current !== epoch) {
       for (const key of [...scheduled.keys()]) void silenceBoundaryAlarms(scheduled, key);
       return;
@@ -336,8 +386,13 @@ export function useWorkTimer() {
   }, []);
 
   const start = useCallback(async () => {
-    if (statusRef.current === 'running' || statusRef.current === 'between') return;
+    // Yalnızca idle/done'dan başlanır: 'paused' oturumu kayıtsız silecek gizli
+    // yol kapalı (devam/sıfırla kullanılmalı).
+    if (statusRef.current !== 'idle' && statusRef.current !== 'done') return;
     const epoch = ++epochRef.current;
+    // 'done' + alarm penceresi açıkken başlatılırsa eski alarmın zamanlayıcısı
+    // yeni oturumun bildirimlerini susturmasın.
+    stopAlarm();
     const preset = pendingPresetRef.current;
     const parts = preset.parts;
     sessionPartsRef.current = parts;
@@ -363,10 +418,11 @@ export function useWorkTimer() {
     setPhaseIndex(0);
     setSecondsLeft(partSeconds(parts[0]));
 
-    await prepareNotifications().catch(() => false);
+    const granted = await prepareNotifications().catch(() => false);
+    setNotificationsGranted(granted);
     if (epochRef.current !== epoch) return;
-    await rescheduleFrom(epoch, 0, endsAtRef.current);
-  }, [rescheduleFrom]);
+    await rescheduleAlarms(epoch);
+  }, [stopAlarm, rescheduleAlarms]);
 
   /** Partlar arası beklemeden sonraki parta geç ("Devam"). */
   const advance = useCallback(async () => {
@@ -381,8 +437,57 @@ export function useWorkTimer() {
     setStatus('running');
     setPhaseIndex(next);
     setSecondsLeft(partSeconds(parts[next]));
-    await rescheduleFrom(epoch, next, endsAtRef.current);
-  }, [stopAlarm, rescheduleFrom]);
+    await rescheduleAlarms(epoch);
+  }, [stopAlarm, rescheduleAlarms]);
+
+  /**
+   * Çalışan molayı atlar; kalan mola süresi sıradaki İLK ÇALIŞMA partına
+   * eklenir (oturuma özel kopyada — önayara yazılmaz). Molaya eklenmez:
+   * aksi halde süre mola → mola kayarak son molada yok olabilirdi. Sonrada
+   * hiç çalışma partı yoksa süre aktarılmadan düşer. Muhasebede molanın
+   * yalnızca fiilen geçen kısmı sayılır. Mola son part ise atlamak seansı
+   * tamamlar.
+   */
+  const skipBreak = useCallback(async () => {
+    if (statusRef.current !== 'running') return;
+    const parts = sessionPartsRef.current;
+    const idx = phaseIndexRef.current;
+    if (parts[idx].type !== 'break') return;
+    const epoch = ++epochRef.current;
+    stopAlarm();
+    const now = Date.now();
+    const remainingMs = Math.max(0, endsAtRef.current - now);
+    breakMsRef.current += Math.max(0, partDurationMs(parts[idx]) - remainingMs);
+
+    if (idx >= parts.length - 1) {
+      statusRef.current = 'done';
+      setStatus('done');
+      setSecondsLeft(0);
+      finishSession('completed', 0);
+      scheduledRef.current = new Map();
+      void cancelAllSessionAlarms();
+      return;
+    }
+
+    const next = idx + 1;
+    // Aktarım hedefi: idx'ten sonraki ilk 'work' part (sıradaki part mola
+    // olsa bile). Hedef yoksa kalan süre aktarılmaz.
+    const target = parts.findIndex((p, i) => i > idx && p.type === 'work');
+    const newParts =
+      target === -1
+        ? parts
+        : parts.map((p, i) =>
+            i === target ? { ...p, minutes: p.minutes + remainingMs / 60_000 } : p,
+          );
+    sessionPartsRef.current = newParts;
+    setSessionParts(newParts);
+    statusRef.current = 'running';
+    phaseIndexRef.current = next;
+    endsAtRef.current = now + partDurationMs(newParts[next]);
+    setPhaseIndex(next);
+    setSecondsLeft(displaySeconds(endsAtRef.current - now));
+    await rescheduleAlarms(epoch);
+  }, [stopAlarm, finishSession, rescheduleAlarms]);
 
   const pause = useCallback(() => {
     if (statusRef.current !== 'running') return;
@@ -402,8 +507,8 @@ export function useWorkTimer() {
     endsAtRef.current = Date.now() + pausedRemainingRef.current;
     statusRef.current = 'running';
     setStatus('running');
-    await rescheduleFrom(epoch, phaseIndexRef.current, endsAtRef.current);
-  }, [rescheduleFrom]);
+    await rescheduleAlarms(epoch);
+  }, [rescheduleAlarms]);
 
   const reset = useCallback(() => {
     epochRef.current += 1;
@@ -452,8 +557,11 @@ export function useWorkTimer() {
     pendingPresetName: pendingPreset.name,
     /** Son kaydedilen oturum özeti (done ekranında gösterilir). */
     lastSaved,
+    /** false: bildirim izni yok/desteklenmiyor → arka planda alarm çalmaz. */
+    notificationsGranted,
     start,
     advance,
+    skipBreak,
     pause,
     resume,
     reset,

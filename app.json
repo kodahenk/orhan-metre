@@ -9,7 +9,8 @@
     "userInterfaceStyle": "light",
     "backgroundColor": "#FFFFFF",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.anonymous.orhanmetre"
     },
     "android": {
       "adaptiveIcon": {

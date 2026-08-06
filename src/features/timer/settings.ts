@@ -12,7 +12,10 @@ export type Part = {
   label: string;
   /** Part süresi (dakika). Ondalık olabilir (ör. 0.5 = 30 sn, test için). */
   minutes: number;
-  /** Part bitince alarmın (15 sn'de bir bildirim + titreşim) süreceği süre (saniye). */
+  /**
+   * Part bitince alarm penceresi (saniye): 0. saniyede 5 sn titreşim, pencere
+   * boyunca 15 sn'de bir titreşimsiz bildirim. Sürekli titreşim yok.
+   */
   alarmSeconds: number;
   type: PartType;
 };

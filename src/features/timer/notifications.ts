@@ -23,20 +23,30 @@ const Notifications: NotificationsModule | null = supported
 
 export const notificationsSupported = supported;
 
-// Android kanal ayarları (ses dahil) oluşturulduktan sonra değiştirilemez;
-// hatalı sesle oluşmuş eski 'faz-alarm' kanalı yerine yeni kimlik kullanılıyor.
-const CHANNEL_ID = 'faz-alarm-v2';
-const LEGACY_CHANNEL_IDS = ['faz-alarm'];
+// Android kanal ayarları (ses/titreşim dahil) oluşturulduktan sonra
+// değiştirilemez; davranış her değiştiğinde yeni kanal kimliği gerekir.
+// v3 davranışı: part bittiği anda TEK bildirim ≈5 sn titreşir; 15 sn'de bir
+// gelen tekrar bildirimleri titreşimsizdir (yalnızca ses + banner).
+const BOUNDARY_CHANNEL_ID = 'faz-alarm-v3';
+const REPEAT_CHANNEL_ID = 'faz-tekrar-v1';
+const LEGACY_CHANNEL_IDS = ['faz-alarm', 'faz-alarm-v2'];
 
 if (Notifications) {
-  // Uygulama öndeyken de bildirim banner'ı görünsün ve ses çalsın.
+  // Uygulama öndeyken de bildirim banner'ı görünsün ve ses çalsın. İstisna:
+  // part-bitiş (sınır) bildirimi ön planda tamamen bastırılır — alarm arayüzü
+  // ve uygulama içi 5 sn titreşim zaten devrede; bildirim kanaldan basılsaydı
+  // kanalın titreşim deseni uygulama içi titreşimle çakışırdı (çifte titreşim).
+  // Bu handler yalnızca ön planda çalışır; arka planda kanal davranışı geçerli.
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      const silent = notification.request.content.data?.foregroundSilent === true;
+      return {
+        shouldShowBanner: !silent,
+        shouldShowList: !silent,
+        shouldPlaySound: !silent,
+        shouldSetBadge: false,
+      };
+    },
   });
 }
 
@@ -52,10 +62,17 @@ export async function prepareNotifications(): Promise<boolean> {
         Notifications!.deleteNotificationChannelAsync(id).catch(() => {}),
       ),
     );
-    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-      name: 'Part alarmları',
+    await Notifications.setNotificationChannelAsync(BOUNDARY_CHANNEL_ID, {
+      name: 'Part bitişi',
       importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 600, 250, 600],
+      // Sonlu ≈5 sn desen: [bekle, titre, ...] toplamı 5000 ms; tekrar etmez,
+      // dolayısıyla titreşim takılı kalamaz.
+      vibrationPattern: [0, 1200, 300, 1200, 300, 1200, 300, 500],
+    });
+    await Notifications.setNotificationChannelAsync(REPEAT_CHANNEL_ID, {
+      name: 'Alarm hatırlatmaları',
+      importance: Notifications.AndroidImportance.MAX,
+      enableVibrate: false,
     });
   }
   const { status } = await Notifications.requestPermissionsAsync();
@@ -69,6 +86,10 @@ export function addNotificationTapListener(onTap: () => void): () => void {
   return () => sub.remove();
 }
 
+// Mola atlama kalan süreyi sonraki parta taşıdığı için dakika ondalıklı
+// olabilir; gösterimde en fazla 1 basamağa yuvarlanır.
+const fmtMinutes = (m: number) => (Number.isInteger(m) ? String(m) : m.toFixed(1));
+
 function boundaryContent(parts: Part[], boundaryIndex: number, autoAdvance: boolean) {
   const finished = parts[boundaryIndex];
   const next = parts[boundaryIndex + 1];
@@ -76,8 +97,8 @@ function boundaryContent(parts: Part[], boundaryIndex: number, autoAdvance: bool
     return {
       title: `${finished.label} bitti`,
       body: autoAdvance
-        ? `Sıradaki: ${next.label} · ${next.minutes} dk`
-        : `Sıradaki: ${next.label} · ${next.minutes} dk — başlatmak için Devam'a bas`,
+        ? `Sıradaki: ${next.label} · ${fmtMinutes(next.minutes)} dk`
+        : `Sıradaki: ${next.label} · ${fmtMinutes(next.minutes)} dk — başlatmak için Devam'a bas`,
       sound: 'default' as const,
     };
   }
@@ -130,11 +151,15 @@ export async function scheduleSessionAlarms(
       Array.from({ length: count }, (_, k) =>
         api
           .scheduleNotificationAsync({
-            content,
+            // k=0 sınır bildirimi ön planda bastırılır (handler'a bak);
+            // 15 sn'lik tekrarlar ön planda da banner + ses olarak görünür.
+            content: k === 0 ? { ...content, data: { foregroundSilent: true } } : content,
             trigger: {
               type: api.SchedulableTriggerInputTypes.DATE,
               date: at + k * ALARM_REPEAT_EVERY_MS,
-              channelId: CHANNEL_ID,
+              // 0. sn'deki ilk bildirim titreşimli kanaldan (≈5 sn), 15 sn'lik
+              // tekrarlar titreşimsiz kanaldan gider.
+              channelId: k === 0 ? BOUNDARY_CHANNEL_ID : REPEAT_CHANNEL_ID,
             },
           })
           .catch(() => null),
@@ -145,19 +170,31 @@ export async function scheduleSessionAlarms(
   return scheduled;
 }
 
-/** Bir sınırın henüz atılmamış bildirimlerini iptal eder, atılmışları panelden kaldırır. */
+/**
+ * Bir sınırın henüz atılmamış bildirimlerini iptal eder, atılmışları panelden
+ * kaldırır. Yalnızca O SINIRIN kimlikleriyle çalışır (dismissAll değil):
+ * başka bir sınırın hâlâ aktif bildirimi yanlışlıkla silinmez ve gecikmeli
+ * ikinci temizlik bayat kalsa bile zararsızdır.
+ */
 export async function silenceBoundaryAlarms(scheduled: ScheduledAlarms, phaseIndex: number) {
   if (!Notifications) return;
   const api = Notifications;
   const ids = scheduled.get(phaseIndex);
   scheduled.delete(phaseIndex);
-  if (ids) {
-    await Promise.all(ids.map((id) => api.cancelScheduledNotificationAsync(id).catch(() => {})));
-  }
-  await api.dismissAllNotificationsAsync().catch(() => {});
-  // Tam susturma anında native tarafa çoktan teslim edilmiş bir tekrar,
-  // dismiss'ten SONRA görünebilir; kısa bir gecikmeyle bir kez daha temizle.
-  setTimeout(() => void api.dismissAllNotificationsAsync().catch(() => {}), 1_600);
+  if (!ids || ids.length === 0) return;
+  const clear = () =>
+    Promise.all(
+      ids.map((id) =>
+        Promise.all([
+          api.cancelScheduledNotificationAsync(id).catch(() => {}),
+          api.dismissNotificationAsync(id).catch(() => {}),
+        ]),
+      ),
+    );
+  await clear();
+  // Susturma anında native tarafa çoktan teslim edilmiş bir tekrar, ilk
+  // temizlikten SONRA görünebilir; kısa bir gecikmeyle bir kez daha temizle.
+  setTimeout(() => void clear(), 1_600);
 }
 
 export async function cancelAllSessionAlarms() {
