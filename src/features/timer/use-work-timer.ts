@@ -1,7 +1,7 @@
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import Storage from 'expo-sqlite/kv-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Vibration } from 'react-native';
+import { AppState, Platform, Vibration } from 'react-native';
 
 import { newId, useProjects } from '@/features/projects/projects-context';
 import { useSessions, type WorkSession } from '@/features/sessions/sessions-context';
@@ -67,6 +67,7 @@ export function useWorkTimer() {
   // null: henüz sorulmadı. false: izin yok/desteklenmiyor → arka planda alarm
   // çalmayacağı için arayüz kullanıcıyı uyarır.
   const [notificationsGranted, setNotificationsGranted] = useState<boolean | null>(null);
+  const notificationsGrantedRef = useRef(false);
 
   // Boştaki gösterim: seçili projenin önayarı (yoksa genel varsayılan).
   const pendingPreset: TimerPreset = useMemo(() => {
@@ -160,7 +161,12 @@ export function useWorkTimer() {
       alarmBoundaryRef.current = boundary;
       alarmEndsAtRef.current = Date.now() + windowMs;
       setAlarmActive(true);
-      if (vibrateMs > 0) {
+      // Android'de bildirimler aktifken 0. sn titreşimini k=0 sınır
+      // bildiriminin kanal deseni (≈5 sn) verir; uygulama içi titreşim
+      // atlanır ki iki kaynak çakışmasın (çifte titreşim). iOS / Expo Go /
+      // izin yok durumlarında uygulama içi titreşim devrededir.
+      const channelVibrates = Platform.OS === 'android' && notificationsGrantedRef.current;
+      if (vibrateMs > 0 && !channelVibrates) {
         alarmVibrateEndsAtRef.current = Date.now() + vibrateMs;
         // Süreli tek titreşim (Android); iOS süreyi yok sayıp tek kez titrer.
         Vibration.vibrate(vibrateMs);
@@ -419,6 +425,7 @@ export function useWorkTimer() {
     setSecondsLeft(partSeconds(parts[0]));
 
     const granted = await prepareNotifications().catch(() => false);
+    notificationsGrantedRef.current = granted;
     setNotificationsGranted(granted);
     if (epochRef.current !== epoch) return;
     await rescheduleAlarms(epoch);
@@ -441,12 +448,12 @@ export function useWorkTimer() {
   }, [stopAlarm, rescheduleAlarms]);
 
   /**
-   * Çalışan molayı atlar; kalan mola süresi sıradaki İLK ÇALIŞMA partına
-   * eklenir (oturuma özel kopyada — önayara yazılmaz). Molaya eklenmez:
-   * aksi halde süre mola → mola kayarak son molada yok olabilirdi. Sonrada
-   * hiç çalışma partı yoksa süre aktarılmadan düşer. Muhasebede molanın
-   * yalnızca fiilen geçen kısmı sayılır. Mola son part ise atlamak seansı
-   * tamamlar.
+   * Çalışan molayı atlar; kalan mola süresi sıradaki İLK MOLAYA eklenir
+   * (dinlenme ertelenir — oturuma özel kopyada, önayara yazılmaz). Sonrasında
+   * hiç mola yoksa süre kaybolmasın diye ilk ÇALIŞMA partına eklenir.
+   * Muhasebede molanın yalnızca fiilen geçen kısmı sayılır; taşınan süre,
+   * uzayan part hangi türdense o türde sayılır. Mola son part ise atlamak
+   * seansı tamamlar.
    */
   const skipBreak = useCallback(async () => {
     if (statusRef.current !== 'running') return;
@@ -470,9 +477,11 @@ export function useWorkTimer() {
     }
 
     const next = idx + 1;
-    // Aktarım hedefi: idx'ten sonraki ilk 'work' part (sıradaki part mola
-    // olsa bile). Hedef yoksa kalan süre aktarılmaz.
-    const target = parts.findIndex((p, i) => i > idx && p.type === 'work');
+    // Aktarım hedefi: idx'ten sonraki ilk MOLA; yoksa ilk çalışma partı.
+    // (idx son part değil — o durum yukarıda seansı bitirdi — dolayısıyla
+    // normalde bir hedef bulunur; güvenlik için -1 yine de kontrol edilir.)
+    const nextBreak = parts.findIndex((p, i) => i > idx && p.type === 'break');
+    const target = nextBreak !== -1 ? nextBreak : parts.findIndex((p, i) => i > idx && p.type === 'work');
     const newParts =
       target === -1
         ? parts

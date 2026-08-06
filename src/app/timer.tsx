@@ -325,14 +325,15 @@ export default function FullscreenTimerScreen() {
             aceleyle Sıfırla'ya basılıp seans kaybedilmez. */}
         {running && !timer.alarmActive && (
           <>
-            {/* Mola atlanabilir; kalan süre sıradaki ÇALIŞMA partına taşınır
-                (molaya değil — süre mola-mola kayıp yok olmasın). */}
-            {phase.type === 'break' &&
-              parts.slice(timer.phaseIndex + 1).some((p) => p.type === 'work') && (
-                <Text style={styles.model} maxFontSizeMultiplier={1.3}>
-                  Atlarsan kalan süre sıradaki çalışmaya eklenir
-                </Text>
-              )}
+            {/* Mola atlanabilir; kalan süre sıradaki MOLAYA taşınır (dinlenme
+                ertelenir), sonrasında mola yoksa çalışmaya (süre kaybolmasın). */}
+            {phase.type === 'break' && timer.phaseIndex < parts.length - 1 && (
+              <Text style={styles.model} maxFontSizeMultiplier={1.3}>
+                {parts.slice(timer.phaseIndex + 1).some((p) => p.type === 'break')
+                  ? 'Atlarsan kalan süre sıradaki molaya eklenir'
+                  : 'Atlarsan kalan süre sıradaki çalışmaya eklenir'}
+              </Text>
+            )}
             <View style={styles.buttonRow}>
               {phase.type === 'break' && (
                 <TimerButton icon="skip-forward" label="Atla" onPress={timer.skipBreak} primary />

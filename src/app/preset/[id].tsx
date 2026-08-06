@@ -166,92 +166,81 @@ export default function PresetEditorScreen() {
               PARTLAR
             </Text>
             <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-              "Çalışma" partları rapor ve hedeflerde sayılır; "Mola" sayılmaz. Süre dk (
+              Tür simgesine dokun: Çalışma ↔ Mola (mola raporlarda sayılmaz). Süre dk (
               {PART_LIMITS.minutes.min}–{PART_LIMITS.minutes.max}), alarm sn (
               {PART_LIMITS.alarmSeconds.min}–{PART_LIMITS.alarmSeconds.max}).
             </Text>
 
-            {parts.map((part, i) => (
+            {/* Kompakt tek satır: tür · ad · süre · alarm · sil */}
+            {parts.map((part) => (
               <View key={part.id} style={styles.partCard}>
-                <View style={styles.partRow}>
-                  <Text style={styles.partIndex} maxFontSizeMultiplier={1.3}>
-                    {i + 1}
-                  </Text>
-                  <TextInput
-                    style={[styles.input, styles.flex]}
-                    value={part.label}
-                    onChangeText={(t) => updatePart(part.id, { label: t })}
-                    placeholder="Part adı"
-                    placeholderTextColor={L.tertiary}
-                    maxLength={24}
+                <Pressable
+                  onPress={() =>
+                    updatePart(part.id, { type: part.type === 'work' ? 'break' : 'work' })
+                  }
+                  hitSlop={4}
+                  style={({ pressed }) => [
+                    styles.typeToggle,
+                    part.type === 'break' && styles.typeToggleBreak,
+                    pressed && styles.pressedOpacity,
+                  ]}
+                >
+                  <Feather
+                    name={part.type === 'work' ? 'zap' : 'coffee'}
+                    size={14}
+                    color={part.type === 'work' ? L.accent : L.ink2}
                   />
-                  <Pressable
-                    onPress={() => removePart(part.id)}
-                    hitSlop={10}
-                    disabled={parts.length <= 1}
-                    style={({ pressed }) => pressed && styles.pressedOpacity}
-                  >
-                    <Feather
-                      name="trash-2"
-                      size={18}
-                      color={parts.length <= 1 ? L.hairline : L.ink2}
-                    />
-                  </Pressable>
+                  <Text style={styles.typeToggleText} maxFontSizeMultiplier={1.1}>
+                    {PART_TYPE_LABELS[part.type]}
+                  </Text>
+                </Pressable>
+
+                <TextInput
+                  style={[styles.input, styles.flex, styles.nameInput]}
+                  value={part.label}
+                  onChangeText={(t) => updatePart(part.id, { label: t })}
+                  placeholder="Part adı"
+                  placeholderTextColor={L.tertiary}
+                  maxLength={24}
+                />
+
+                <View style={styles.unitBox}>
+                  <TextInput
+                    style={styles.unitInput}
+                    value={part.minutes}
+                    onChangeText={(t) => updatePart(part.id, { minutes: t })}
+                    keyboardType="decimal-pad"
+                    maxLength={5}
+                  />
+                  <Text style={styles.unitSuffix} maxFontSizeMultiplier={1.1}>
+                    dk
+                  </Text>
+                </View>
+                <View style={styles.unitBox}>
+                  <TextInput
+                    style={styles.unitInput}
+                    value={part.alarmSeconds}
+                    onChangeText={(t) => updatePart(part.id, { alarmSeconds: t })}
+                    keyboardType="number-pad"
+                    maxLength={3}
+                  />
+                  <Text style={styles.unitSuffix} maxFontSizeMultiplier={1.1}>
+                    sn
+                  </Text>
                 </View>
 
-                {/* Tür seçimi */}
-                <View style={styles.segment}>
-                  {(['work', 'break'] as PartType[]).map((type, ti) => (
-                    <Pressable
-                      key={type}
-                      style={[
-                        styles.segmentItem,
-                        ti > 0 && styles.segmentDivider,
-                        part.type === type && styles.segmentItemOn,
-                      ]}
-                      onPress={() => updatePart(part.id, { type })}
-                    >
-                      <Feather
-                        name={type === 'work' ? 'zap' : 'coffee'}
-                        size={13}
-                        color={part.type === type ? L.accent : L.tertiary}
-                      />
-                      <Text
-                        style={[styles.segmentText, part.type === type && styles.segmentTextOn]}
-                        maxFontSizeMultiplier={1.2}
-                      >
-                        {PART_TYPE_LABELS[type]}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <View style={styles.partRow}>
-                  <View style={styles.field}>
-                    <Text style={styles.fieldLabel} maxFontSizeMultiplier={1.3}>
-                      Süre (dk)
-                    </Text>
-                    <TextInput
-                      style={styles.input}
-                      value={part.minutes}
-                      onChangeText={(t) => updatePart(part.id, { minutes: t })}
-                      keyboardType="decimal-pad"
-                      maxLength={6}
-                    />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.fieldLabel} maxFontSizeMultiplier={1.3}>
-                      Alarm (sn)
-                    </Text>
-                    <TextInput
-                      style={styles.input}
-                      value={part.alarmSeconds}
-                      onChangeText={(t) => updatePart(part.id, { alarmSeconds: t })}
-                      keyboardType="number-pad"
-                      maxLength={4}
-                    />
-                  </View>
-                </View>
+                <Pressable
+                  onPress={() => removePart(part.id)}
+                  hitSlop={10}
+                  disabled={parts.length <= 1}
+                  style={({ pressed }) => pressed && styles.pressedOpacity}
+                >
+                  <Feather
+                    name="trash-2"
+                    size={17}
+                    color={parts.length <= 1 ? L.hairline : L.ink2}
+                  />
+                </Pressable>
               </View>
             ))}
 
@@ -351,58 +340,60 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   partCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: L.surface,
     borderWidth: 1,
     borderColor: L.hairline,
     borderRadius: R.lg,
-    padding: 14,
-    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
-  partRow: {
-    flexDirection: 'row',
+  typeToggle: {
+    width: 52,
+    height: 44,
     alignItems: 'center',
-    gap: 12,
-  },
-  partIndex: {
-    color: L.tertiary,
-    fontFamily: F.uiMed,
-    fontSize: 14,
-    width: 18,
-  },
-  field: {
-    flex: 1,
-    gap: 6,
-  },
-  segment: {
-    flexDirection: 'row',
-    height: 34,
+    justifyContent: 'center',
+    gap: 2,
     borderWidth: 1,
     borderColor: L.border,
     borderRadius: R.md,
-    overflow: 'hidden',
   },
-  segmentItem: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  segmentDivider: {
-    borderLeftWidth: 1,
-    borderLeftColor: L.border,
-  },
-  segmentItemOn: {
+  typeToggleBreak: {
     backgroundColor: L.selected,
   },
-  segmentText: {
+  typeToggleText: {
     color: L.ink2,
     fontFamily: F.uiMed,
-    fontSize: 12,
+    fontSize: 9,
   },
-  segmentTextOn: {
-    color: L.accent,
-    fontFamily: F.uiSemi,
+  nameInput: {
+    minWidth: 60,
+    paddingHorizontal: 10,
+  },
+  unitBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+    paddingHorizontal: 6,
+    gap: 2,
+  },
+  unitInput: {
+    width: 34,
+    color: L.ink,
+    fontFamily: F.ui,
+    fontSize: 15,
+    textAlign: 'right',
+    padding: 0,
+  },
+  unitSuffix: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 12,
   },
   addButton: {
     flexDirection: 'row',

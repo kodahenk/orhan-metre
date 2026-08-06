@@ -32,21 +32,18 @@ const REPEAT_CHANNEL_ID = 'faz-tekrar-v1';
 const LEGACY_CHANNEL_IDS = ['faz-alarm', 'faz-alarm-v2'];
 
 if (Notifications) {
-  // Uygulama öndeyken de bildirim banner'ı görünsün ve ses çalsın. İstisna:
-  // part-bitiş (sınır) bildirimi ön planda tamamen bastırılır — alarm arayüzü
-  // ve uygulama içi 5 sn titreşim zaten devrede; bildirim kanaldan basılsaydı
-  // kanalın titreşim deseni uygulama içi titreşimle çakışırdı (çifte titreşim).
-  // Bu handler yalnızca ön planda çalışır; arka planda kanal davranışı geçerli.
+  // Uygulama öndeyken de bildirim banner'ı görünsün ve ses çalsın. Sınır
+  // (k=0) bildirimi ön planda BASTIRILMAZ: alarmSeconds < 30 olduğunda o
+  // sınırın tek bildirimi k=0'dır; bastırmak ön planda hiç bildirim
+  // görünmemesine yol açıyordu. Çifte titreşim ise öbür uçtan önlenir:
+  // bildirimler aktifken uygulama içi titreşim atlanır (use-work-timer).
   Notifications.setNotificationHandler({
-    handleNotification: async (notification) => {
-      const silent = notification.request.content.data?.foregroundSilent === true;
-      return {
-        shouldShowBanner: !silent,
-        shouldShowList: !silent,
-        shouldPlaySound: !silent,
-        shouldSetBadge: false,
-      };
-    },
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
   });
 }
 
@@ -151,9 +148,7 @@ export async function scheduleSessionAlarms(
       Array.from({ length: count }, (_, k) =>
         api
           .scheduleNotificationAsync({
-            // k=0 sınır bildirimi ön planda bastırılır (handler'a bak);
-            // 15 sn'lik tekrarlar ön planda da banner + ses olarak görünür.
-            content: k === 0 ? { ...content, data: { foregroundSilent: true } } : content,
+            content,
             trigger: {
               type: api.SchedulableTriggerInputTypes.DATE,
               date: at + k * ALARM_REPEAT_EVERY_MS,
