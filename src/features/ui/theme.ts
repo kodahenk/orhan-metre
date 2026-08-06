@@ -41,6 +41,9 @@ export const D = {
   dotOff: '#1C1E22',
   dotPast: '#4A4F58',
   amber: '#B8860B',
+  // Mola rakamları + alarm rozeti: ince mono fontta okunaklı parlak sarı
+  // (amber siyah üzerinde dev rakamlar için sönük kalıyor).
+  yellow: '#FBBF24',
   clock: '#B6BBC2',
 } as const;
 

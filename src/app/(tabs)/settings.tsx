@@ -1,25 +1,33 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import {
+  hasOverlayPermission,
+  miniTimerSupported,
+  requestOverlayPermission,
+} from '@/features/timer/mini-timer';
 
 import {
   DISPLAY_SIZE_LABELS,
   presetTotalMinutes,
-  TIMER_COLORS,
+  WORK_END_REMINDER_OPTIONS,
   type TimerDisplaySize,
 } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { ScreenHeader } from '@/features/ui/components';
-import { F, L, R } from '@/features/ui/theme';
+import { D, F, L, R } from '@/features/ui/theme';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { settings, presets, save, addPreset } = useTimerSettings();
 
   const [autoAdvance, setAutoAdvance] = useState(settings.autoAdvance);
+  const [workEndReminder, setWorkEndReminder] = useState(settings.workEndReminderMinutes);
   const [display, setDisplay] = useState(settings.display);
+  const [overlayGranted, setOverlayGranted] = useState(hasOverlayPermission);
   const [activePresetId, setActivePresetId] = useState(settings.activePresetId);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -36,11 +44,25 @@ export default function SettingsScreen() {
     };
   }, []);
 
+  // Sistem ayarlarından dönüşte overlay izin durumunu tazele.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setOverlayGranted(hasOverlayPermission());
+    });
+    return () => sub.remove();
+  }, []);
+
   const onSave = async () => {
     if (saving) return;
     setSaving(true);
     try {
-      await save({ version: 3, activePresetId, autoAdvance, display });
+      await save({
+        version: 3,
+        activePresetId,
+        autoAdvance,
+        workEndReminderMinutes: workEndReminder,
+        display,
+      });
       setSavedFlash(true);
       if (flashTimer.current) clearTimeout(flashTimer.current);
       flashTimer.current = setTimeout(() => setSavedFlash(false), 2000);
@@ -163,19 +185,90 @@ export default function SettingsScreen() {
             ))}
           </View>
 
+          {/* Arka plan mini sayaç (yalnızca Android development build) */}
+          {miniTimerSupported && (
+            <>
+              <Text
+                style={[styles.sectionTitle, styles.sectionSpacing]}
+                maxFontSizeMultiplier={1.3}
+              >
+                ARKA PLAN MİNİ SAYAÇ
+              </Text>
+              <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
+                Sayaç çalışırken uygulamadan çıkınca bildirim panelinde canlı geri sayım
+                gösterilir. Ekranın sol üstünde yarı saydam mini sayaç için 'üstte
+                gösterme' izni gerekir.
+              </Text>
+              <View style={styles.card}>
+                <Pressable
+                  style={({ pressed }) => [styles.option, pressed && styles.rowPressed]}
+                  onPress={() => {
+                    if (!overlayGranted) requestOverlayPermission();
+                  }}
+                >
+                  <Feather
+                    name={overlayGranted ? 'check-circle' : 'circle'}
+                    size={18}
+                    color={overlayGranted ? L.success : L.borderActive}
+                  />
+                  <View style={styles.flex}>
+                    <Text style={styles.optionTitle} maxFontSizeMultiplier={1.3}>
+                      Üstte gösterme izni
+                    </Text>
+                    <Text style={styles.optionDesc} maxFontSizeMultiplier={1.3}>
+                      {overlayGranted
+                        ? 'Verildi — mini sayaç ekran üstünde görünecek'
+                        : 'Vermek için dokun; sistem ayarları açılır'}
+                    </Text>
+                  </View>
+                </Pressable>
+              </View>
+            </>
+          )}
+
+          {/* Çalışma bitiş hatırlatıcısı */}
+          <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
+            ÇALIŞMA BİTİŞ HATIRLATICISI
+          </Text>
+          <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
+            Çalışma partı bitmeden seçilen süre kadar önce 'bitmeye az kaldı' bildirimi
+            gönderilir. Molalara uygulanmaz.
+          </Text>
+          <View style={styles.segment}>
+            {WORK_END_REMINDER_OPTIONS.map((min, i) => (
+              <Pressable
+                key={min}
+                style={[
+                  styles.segmentItem,
+                  i > 0 && styles.segmentDivider,
+                  workEndReminder === min && styles.segmentItemOn,
+                ]}
+                onPress={() => setWorkEndReminder(min)}
+              >
+                <Text
+                  style={[styles.segmentText, workEndReminder === min && styles.segmentTextOn]}
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {min === 0 ? 'Kapalı' : `${min} dk`}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
           {/* Görünüm */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
             TAM EKRAN GÖRÜNÜMÜ
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-            Boyut ve renk, siyah (AMOLED) tam ekran zamanlayıcıya uygulanır.
+            Boyut, siyah (AMOLED) tam ekran zamanlayıcıya uygulanır. Renk otomatiktir:
+            çalışmada gri, molada sarı.
           </Text>
           <View style={styles.previewBox}>
             <Text
               style={[
                 styles.previewTime,
                 {
-                  color: display.color,
+                  color: D.text,
                   fontSize: { kucuk: 26, orta: 34, buyuk: 42 }[display.size],
                 },
               ]}
@@ -205,22 +298,6 @@ export default function SettingsScreen() {
                 >
                   {DISPLAY_SIZE_LABELS[size]}
                 </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={[styles.fieldLabel, { marginTop: 8 }]} maxFontSizeMultiplier={1.3}>
-            Sayaç rengi
-          </Text>
-          <View style={styles.swatchRow}>
-            {TIMER_COLORS.map((color) => (
-              <Pressable
-                key={color}
-                onPress={() => setDisplay((d) => ({ ...d, color }))}
-                style={[styles.swatchWrap, display.color === color && styles.swatchWrapSelected]}
-                hitSlop={6}
-              >
-                <View style={[styles.swatch, { backgroundColor: color }]} />
               </Pressable>
             ))}
           </View>
@@ -409,26 +486,6 @@ const styles = StyleSheet.create({
   segmentTextOn: {
     color: L.accent,
     fontFamily: F.uiSemi,
-  },
-  swatchRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  swatchWrap: {
-    padding: 3,
-    borderRadius: R.md + 2,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  swatchWrapSelected: {
-    borderColor: L.ink,
-  },
-  swatch: {
-    width: 28,
-    height: 28,
-    borderRadius: R.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: L.border,
   },
   saveButton: {
     flexDirection: 'row',

@@ -28,9 +28,10 @@ export type TimerPreset = {
 
 export type TimerDisplaySize = 'kucuk' | 'orta' | 'buyuk';
 
+// Renk kullanıcı ayarı değildir: rakamlar çalışma partında gri, molada sarı
+// (tema token'ları); yalnızca boyut tercihi saklanır.
 export type TimerDisplay = {
   size: TimerDisplaySize;
-  color: string;
 };
 
 export type TimerSettings = {
@@ -38,8 +39,16 @@ export type TimerSettings = {
   /** Genel varsayılan önayar; projeler kendi önayarını atayabilir. */
   activePresetId: string;
   autoAdvance: boolean;
+  /**
+   * Çalışma partı bitmeden bu kadar dakika önce "bitmeye az kaldı" bildirimi
+   * (0 = kapalı). Yalnızca work partlarına uygulanır; oturum başında dondurulur.
+   */
+  workEndReminderMinutes: number;
   display: TimerDisplay;
 };
+
+/** Ayarlar ekranındaki seçenekler; sanitize de bu listeye göre doğrular. */
+export const WORK_END_REMINDER_OPTIONS = [0, 1, 3, 5] as const;
 
 export const ALARM_REPEAT_EVERY_MS = 15_000;
 export const MAX_SCHEDULED_PER_BOUNDARY = 20;
@@ -53,15 +62,6 @@ export const PART_TYPE_LABELS: Record<PartType, string> = {
   work: 'Çalışma',
   break: 'Mola',
 };
-
-export const TIMER_COLORS = [
-  '#E8EAED',
-  '#FBBF24',
-  '#34D399',
-  '#38BDF8',
-  '#F472B6',
-  '#A78BFA',
-] as const;
 
 export const DISPLAY_SIZE_SCALE: Record<TimerDisplaySize, number> = {
   kucuk: 0.45,
@@ -79,7 +79,7 @@ export function newPartId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export const DEFAULT_DISPLAY: TimerDisplay = { size: 'buyuk', color: TIMER_COLORS[0] };
+export const DEFAULT_DISPLAY: TimerDisplay = { size: 'buyuk' };
 
 export const DEFAULT_PRESET: TimerPreset = {
   id: 'default',
@@ -95,6 +95,7 @@ export const DEFAULT_SETTINGS: TimerSettings = {
   version: 3,
   activePresetId: DEFAULT_PRESET.id,
   autoAdvance: true,
+  workEndReminderMinutes: 0,
   display: DEFAULT_DISPLAY,
 };
 
@@ -139,14 +140,12 @@ export function sanitizePresets(raw: unknown): TimerPreset[] {
   return presets.length > 0 ? presets : [DEFAULT_PRESET];
 }
 
+// Beyaz-liste kurduğu için eski kayıtlardaki 'color' alanı okunmaz ve ilk
+// kaydetmede diskten de temizlenir; ayrı migrasyon gerekmez.
 function sanitizeDisplay(raw: unknown): TimerDisplay {
   const obj = (raw ?? {}) as Partial<TimerDisplay>;
   return {
     size: obj.size && obj.size in DISPLAY_SIZE_SCALE ? obj.size : DEFAULT_DISPLAY.size,
-    color:
-      typeof obj.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(obj.color)
-        ? obj.color
-        : DEFAULT_DISPLAY.color,
   };
 }
 
@@ -157,6 +156,11 @@ export function sanitizeSettings(raw: unknown, presets: TimerPreset[]): TimerSet
     version: 3,
     activePresetId: activeExists ? (obj.activePresetId as string) : presets[0].id,
     autoAdvance: typeof obj.autoAdvance === 'boolean' ? obj.autoAdvance : true,
+    workEndReminderMinutes: (WORK_END_REMINDER_OPTIONS as readonly number[]).includes(
+      obj.workEndReminderMinutes as number,
+    )
+      ? (obj.workEndReminderMinutes as number)
+      : 0,
     display: sanitizeDisplay(obj.display),
   };
 }

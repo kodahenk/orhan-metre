@@ -23,7 +23,8 @@
       "permissions": [
         "android.permission.VIBRATE",
         "android.permission.SCHEDULE_EXACT_ALARM",
-        "android.permission.USE_EXACT_ALARM"
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "package": "com.anonymous.orhanmetre"
     },

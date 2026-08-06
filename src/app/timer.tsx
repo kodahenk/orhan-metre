@@ -87,7 +87,6 @@ export default function FullscreenTimerScreen() {
   const timeFontSize = fitFontSize * DISPLAY_SIZE_SCALE[settings.display.size];
   const clockFontSize = Math.max(18, Math.round(timeFontSize * 0.3));
   const dateFontSize = Math.max(15, Math.round(timeFontSize * 0.22));
-  const timeColor = settings.display.color;
 
   // Tarih ve saat satırları: 10 sn'de bir tazelenir; değer değişmedikçe
   // setState render tetiklemez (tarih günde bir, saat dakikada bir değişir).
@@ -186,6 +185,13 @@ export default function FullscreenTimerScreen() {
   const phase = parts[timer.phaseIndex];
   const nextPart = between ? parts[timer.phaseIndex + 1] : null;
 
+  // Rakam rengi türe göre: çalışma gri, mola sarı. Beklemede sıradaki partın
+  // türü esas alınır (gösterilen süre de onunki); boşta ilk part, bitince
+  // nötr gri.
+  const colorPart = between ? (nextPart ?? phase) : phase;
+  const timeColor =
+    timer.status === 'done' || colorPart.type !== 'break' ? D.text : D.yellow;
+
   const topLabel = (() => {
     if (timer.status === 'idle') return 'Hazır';
     if (timer.status === 'done') return 'Tamamlandı';
@@ -211,6 +217,15 @@ export default function FullscreenTimerScreen() {
           <Feather name="minimize" size={19} color={D.text2} />
         </Pressable>
       </Animated.View>
+
+      {/* Alarm penceresi göstergesi: hangi aşamada olunduğu üstten okunur.
+          Chrome animasyonundan bağımsız — alarm sürdükçe hep görünür;
+          pointerEvents kapalı ki ekrana dokunup susturmayı engellemesin. */}
+      {timer.alarmActive && (
+        <View style={styles.alarmBadge} pointerEvents="none">
+          <Feather name="bell" size={20} color={D.yellow} />
+        </View>
+      )}
 
       <Animated.View
         style={[styles.chrome, { opacity: chromeOpacity }]}
@@ -381,6 +396,16 @@ const styles = StyleSheet.create({
     borderColor: D.dotOff,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  alarmBadge: {
+    position: 'absolute',
+    top: 24,
+    right: 20,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
   },
   chrome: {
     alignItems: 'center',

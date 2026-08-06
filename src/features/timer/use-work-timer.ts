@@ -5,6 +5,7 @@ import { AppState, Platform, Vibration } from 'react-native';
 
 import { newId, useProjects } from '@/features/projects/projects-context';
 import { useSessions, type WorkSession } from '@/features/sessions/sessions-context';
+import { hideMiniTimer, showMiniTimer } from './mini-timer';
 import {
   addNotificationTapListener,
   cancelAllSessionAlarms,
@@ -86,6 +87,8 @@ export function useWorkTimer() {
   const pausedRemainingRef = useRef(0);
   const sessionPartsRef = useRef<Part[]>(pendingPreset.parts);
   const autoAdvanceRef = useRef(settings.autoAdvance);
+  // Oturum başında dondurulur (autoAdvance deseniyle aynı): ms cinsinden.
+  const workEndReminderMsRef = useRef(0);
   const pendingPresetRef = useRef(pendingPreset);
   const settingsRef = useRef(settings);
   const pendingProjectRef = useRef<string | null>(null);
@@ -312,8 +315,17 @@ export function useWorkTimer() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') {
         Vibration.cancel();
+        // Arka plan mini sayacı: yalnızca bir part fiilen akarken gösterilir.
+        // Tikleme native tarafta (endsAt ile) sürer; JS burada durur.
+        if (statusRef.current === 'running') {
+          showMiniTimer(
+            endsAtRef.current,
+            sessionPartsRef.current[phaseIndexRef.current].label,
+          );
+        }
         return;
       }
+      hideMiniTimer();
       syncNow();
       if (alarmBoundaryRef.current != null) {
         const remaining = alarmEndsAtRef.current - Date.now();
@@ -354,6 +366,7 @@ export function useWorkTimer() {
   useEffect(() => {
     return () => {
       Vibration.cancel();
+      hideMiniTimer();
       if (alarmStopTimer.current) clearTimeout(alarmStopTimer.current);
     };
   }, []);
@@ -383,7 +396,13 @@ export function useWorkTimer() {
     } else if (st !== 'running') {
       return; // idle/paused/done: zamanlanacak sınır yok
     }
-    const scheduled = await scheduleSessionAlarms(parts, auto, fromIndex, endsAt);
+    const scheduled = await scheduleSessionAlarms(
+      parts,
+      auto,
+      fromIndex,
+      endsAt,
+      workEndReminderMsRef.current,
+    );
     if (epochRef.current !== epoch) {
       for (const key of [...scheduled.keys()]) void silenceBoundaryAlarms(scheduled, key);
       return;
@@ -403,6 +422,10 @@ export function useWorkTimer() {
     const parts = preset.parts;
     sessionPartsRef.current = parts;
     autoAdvanceRef.current = settingsRef.current.autoAdvance;
+    workEndReminderMsRef.current = Math.max(
+      0,
+      settingsRef.current.workEndReminderMinutes * 60_000,
+    );
     setSessionParts(parts);
     setSessionAuto(settingsRef.current.autoAdvance);
     setLastSaved(null);

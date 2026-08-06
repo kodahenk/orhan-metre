@@ -107,6 +107,16 @@ function boundaryContent(parts: Part[], boundaryIndex: number, autoAdvance: bool
   };
 }
 
+/** "Çalışma bitmeye X kala" hatırlatma bildirimi içeriği. */
+function preEndContent(part: Part, preEndMs: number) {
+  const min = Math.max(1, Math.round(preEndMs / 60_000));
+  return {
+    title: `${part.label} bitmeye az kaldı`,
+    body: `${min} dk sonra ${part.label} sona erecek.`,
+    sound: 'default' as const,
+  };
+}
+
 /** Part sonu (sınır) index'i → o sınır için zamanlanmış bildirim id'leri. */
 export type ScheduledAlarms = Map<number, string[]>;
 
@@ -126,6 +136,8 @@ export async function scheduleSessionAlarms(
   autoAdvance: boolean,
   startPhaseIndex: number,
   currentPhaseEndsAt: number,
+  /** Work partı bitmeden bu kadar ms önce hatırlatma bildirimi (0 = kapalı). */
+  preEndMs = 0,
 ): Promise<ScheduledAlarms> {
   const scheduled: ScheduledAlarms = new Map();
   if (!Notifications) return scheduled;
@@ -160,7 +172,30 @@ export async function scheduleSessionAlarms(
           .catch(() => null),
       ),
     );
-    scheduled.set(i, ids.filter((id): id is string => id != null));
+    const idList = ids.filter((id): id is string => id != null);
+
+    // Çalışma bitiş hatırlatıcısı: work partı bitmeden preEndMs önce tek
+    // bildirim. Kimlik AYNI sınır anahtarına eklenir ki susturma / atlama /
+    // yeniden zamanlama yolları onu da otomatik kapsasın. Part süresi
+    // hatırlatmadan kısaysa ya da tetik anı geçmişte kaldıysa atlanır —
+    // geçmiş tarihli DATE tetikleyicisi anında ateşlenirdi.
+    if (preEndMs > 0 && parts[i].type === 'work' && partDurationMs(parts[i]) > preEndMs) {
+      const preAt = at - preEndMs;
+      if (preAt > Date.now() + 1_000) {
+        const preId = await api
+          .scheduleNotificationAsync({
+            content: preEndContent(parts[i], preEndMs),
+            trigger: {
+              type: api.SchedulableTriggerInputTypes.DATE,
+              date: preAt,
+              channelId: REPEAT_CHANNEL_ID,
+            },
+          })
+          .catch(() => null);
+        if (preId) idList.push(preId);
+      }
+    }
+    scheduled.set(i, idList);
   }
   return scheduled;
 }
