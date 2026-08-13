@@ -1,7 +1,15 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  AppState,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -12,6 +20,7 @@ import {
 
 import {
   DISPLAY_SIZE_LABELS,
+  MIN_BREAK_LIMITS,
   presetTotalMinutes,
   WORK_END_REMINDER_OPTIONS,
   type TimerDisplaySize,
@@ -26,6 +35,8 @@ export default function SettingsScreen() {
 
   const [autoAdvance, setAutoAdvance] = useState(settings.autoAdvance);
   const [workEndReminder, setWorkEndReminder] = useState(settings.workEndReminderMinutes);
+  const [plannedStart, setPlannedStart] = useState(settings.plannedStartTime ?? '');
+  const [minBreak, setMinBreak] = useState(String(settings.minBreakMinutes));
   const [display, setDisplay] = useState(settings.display);
   const [overlayGranted, setOverlayGranted] = useState(hasOverlayPermission);
   const [activePresetId, setActivePresetId] = useState(settings.activePresetId);
@@ -40,6 +51,8 @@ export default function SettingsScreen() {
     setActivePresetId(settings.activePresetId);
     setAutoAdvance(settings.autoAdvance);
     setWorkEndReminder(settings.workEndReminderMinutes);
+    setPlannedStart(settings.plannedStartTime ?? '');
+    setMinBreak(String(settings.minBreakMinutes));
     setDisplay(settings.display);
   }, [settings]);
 
@@ -61,11 +74,15 @@ export default function SettingsScreen() {
     if (saving) return;
     setSaving(true);
     try {
+      // Geçersiz saat/dk girişlerini sanitizeSettings eler (saat → null,
+      // dk → 1-30 aralığına kırpma); kaydedilen değer forma geri yansır.
       await save({
         version: 3,
         activePresetId,
         autoAdvance,
         workEndReminderMinutes: workEndReminder,
+        plannedStartTime: plannedStart.trim() || null,
+        minBreakMinutes: Number(minBreak.replace(',', '.')),
         display,
       });
       setSavedFlash(true);
@@ -200,9 +217,7 @@ export default function SettingsScreen() {
                 ARKA PLAN MİNİ SAYAÇ
               </Text>
               <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-                Sayaç çalışırken uygulamadan çıkınca bildirim panelinde canlı geri sayım
-                gösterilir. Ekranın sol üstünde yarı saydam mini sayaç için 'üstte
-                gösterme' izni gerekir.
+                {"Sayaç çalışırken uygulamadan çıkınca bildirim panelinde canlı geri sayım gösterilir. Ekranın sol üstünde yarı saydam mini sayaç için 'üstte gösterme' izni gerekir."}
               </Text>
               <View style={styles.card}>
                 <Pressable
@@ -231,13 +246,53 @@ export default function SettingsScreen() {
             </>
           )}
 
+          {/* Planlı başlangıç + mola borcu */}
+          <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
+            PLANLI BAŞLANGIÇ
+          </Text>
+          <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
+            Günün ilk seansı bu saatten geç başlarsa gecikme, sonraki molalardan düşülür
+            (her mola en fazla minimuma iner, artan sonraki molaya taşar). Çalışmada
+            duraklatılan süre de aynı şekilde düşülür. Saati boş bırak = kapalı.
+          </Text>
+          <View style={styles.inlineRow}>
+            <View style={styles.inlineField}>
+              <Text style={styles.fieldLabel} maxFontSizeMultiplier={1.3}>
+                Başlangıç saati
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={plannedStart}
+                onChangeText={setPlannedStart}
+                placeholder="09:00"
+                placeholderTextColor={L.tertiary}
+                maxLength={5}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            <View style={styles.inlineField}>
+              <Text style={styles.fieldLabel} maxFontSizeMultiplier={1.3}>
+                Minimum mola (dk)
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={minBreak}
+                onChangeText={setMinBreak}
+                keyboardType="number-pad"
+                maxLength={2}
+                placeholder={String(MIN_BREAK_LIMITS.min)}
+                placeholderTextColor={L.tertiary}
+              />
+            </View>
+          </View>
+
           {/* Çalışma bitiş hatırlatıcısı */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
             ÇALIŞMA BİTİŞ HATIRLATICISI
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-            Çalışma partı bitmeden seçilen süre kadar önce 'bitmeye az kaldı' bildirimi
-            gönderilir. Molalara uygulanmaz.
+            {"Çalışma partı bitmeden seçilen süre kadar önce 'bitmeye az kaldı' bildirimi gönderilir. Molalara uygulanmaz."}
           </Text>
           <View style={styles.segment}>
             {WORK_END_REMINDER_OPTIONS.map((min, i) => (
@@ -461,6 +516,25 @@ const styles = StyleSheet.create({
     color: L.ink2,
     fontFamily: F.uiMed,
     fontSize: 13,
+  },
+  inlineRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  inlineField: {
+    flex: 1,
+    gap: 6,
+  },
+  input: {
+    height: 44,
+    color: L.ink,
+    fontFamily: F.ui,
+    fontSize: 15,
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+    paddingHorizontal: 12,
   },
   segment: {
     flexDirection: 'row',

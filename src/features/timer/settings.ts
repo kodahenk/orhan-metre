@@ -1,5 +1,7 @@
 import Storage from 'expo-sqlite/kv-store';
 
+import { dateKey } from './format';
+
 // --- Model (v3) ---
 // Partlar artık adlandırılmış ÖNAYARLAR (preset) altında yaşar ve her partın
 // bir TÜRÜ vardır: 'work' sayılan çalışma süresi, 'break' sayılmayan mola.
@@ -44,11 +46,40 @@ export type TimerSettings = {
    * (0 = kapalı). Yalnızca work partlarına uygulanır; oturum başında dondurulur.
    */
   workEndReminderMinutes: number;
+  /**
+   * Planlı başlangıç saati ("09:00" biçimi; null = kapalı). Günün İLK seansı
+   * bu saatten geç başlarsa gecikme, mola borcu olarak sonraki molalardan
+   * düşülür (her mola en fazla minBreakMinutes tabanına iner, artan borç
+   * sonraki molaya taşar).
+   */
+  plannedStartTime: string | null;
+  /** Molaların borçla inebileceği taban (dk). 0'a izin yok: 0 dk'lık part
+   *  motoru bozar (çifte alarm penceresi). */
+  minBreakMinutes: number;
   display: TimerDisplay;
 };
 
 /** Ayarlar ekranındaki seçenekler; sanitize de bu listeye göre doğrular. */
 export const WORK_END_REMINDER_OPTIONS = [0, 1, 3, 5] as const;
+
+export const MIN_BREAK_LIMITS = { min: 1, max: 30 } as const;
+
+const PLANNED_START_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+/** "09:00" → verilen günün o saatinin zaman damgası (yerel saat dilimi). */
+export function plannedStartTimestamp(hhmm: string, now = new Date()): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  const d = new Date(now);
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Günün ilk başlatması damgası (yerel YYYY-AA-GG). Gecikme borcu yalnızca
+ * damgasız günde hesaplanır; damga borç doğsun doğmasın basılır (erken
+ * başlangıç dahil) — aynı gün sonraki seanslar "geç" sayılmaz.
+ */
+export const PLANNED_START_STAMP_KEY = 'planned-start-last-day';
 
 export const ALARM_REPEAT_EVERY_MS = 15_000;
 export const MAX_SCHEDULED_PER_BOUNDARY = 20;
@@ -96,6 +127,8 @@ export const DEFAULT_SETTINGS: TimerSettings = {
   activePresetId: DEFAULT_PRESET.id,
   autoAdvance: true,
   workEndReminderMinutes: 0,
+  plannedStartTime: null,
+  minBreakMinutes: 1,
   display: DEFAULT_DISPLAY,
 };
 
@@ -166,6 +199,17 @@ export function sanitizeSettings(raw: unknown, presets: TimerPreset[]): TimerSet
     )
       ? (obj.workEndReminderMinutes as number)
       : 0,
+    plannedStartTime:
+      typeof obj.plannedStartTime === 'string' && PLANNED_START_RE.test(obj.plannedStartTime)
+        ? obj.plannedStartTime
+        : null,
+    minBreakMinutes: Math.round(
+      clamp(
+        Number.isFinite(obj.minBreakMinutes) ? (obj.minBreakMinutes as number) : 1,
+        MIN_BREAK_LIMITS.min,
+        MIN_BREAK_LIMITS.max,
+      ),
+    ),
     display: sanitizeDisplay(obj.display),
   };
 }
@@ -208,6 +252,17 @@ export async function loadTimerConfig(): Promise<LoadedTimerConfig> {
 
 export async function saveSettings(settings: TimerSettings): Promise<void> {
   await Storage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  // Gün ortasında etkinleştirme koruması: bugünün planlı saati çoktan
+  // geçmişse damga bugüne basılır → gecikme borcu yarından itibaren işler;
+  // saatler sonra açılan seansa "hayalet borç" yazılmaz.
+  if (
+    settings.plannedStartTime &&
+    plannedStartTimestamp(settings.plannedStartTime) < Date.now()
+  ) {
+    try {
+      Storage.setItemSync(PLANNED_START_STAMP_KEY, dateKey(new Date()));
+    } catch {}
+  }
 }
 
 export async function savePresets(presets: TimerPreset[]): Promise<void> {

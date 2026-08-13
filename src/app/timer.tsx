@@ -295,6 +295,19 @@ export default function FullscreenTimerScreen() {
         style={[styles.chrome, { opacity: chromeOpacity }]}
         pointerEvents={chromeVisible ? 'auto' : 'none'}
       >
+        {/* Boşta: planlı başlangıç bilgisi. Oturumda: molalardan fiilen
+            düşülen borç (gecikme + duraklatma) toplamı. */}
+        {timer.status === 'idle' && settings.plannedStartTime && (
+          <Text style={styles.model} maxFontSizeMultiplier={1.3}>
+            Planlı başlangıç: {settings.plannedStartTime}
+          </Text>
+        )}
+        {timer.breakDebtAppliedMs > 0 && timer.status !== 'idle' && (
+          <Text style={styles.model} maxFontSizeMultiplier={1.3}>
+            Molalardan düşüldü: {Math.max(1, Math.round(timer.breakDebtAppliedMs / 60_000))} dk
+          </Text>
+        )}
+
         {/* İzin reddedildiyse/desteklenmiyorsa oturum boyunca uyar: arka
             planda alarm çalmayacak, kullanıcı bunu bilmeli. */}
         {timer.notificationsGranted === false &&

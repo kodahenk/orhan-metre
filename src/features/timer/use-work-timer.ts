@@ -14,7 +14,15 @@ import {
   silenceBoundaryAlarms,
   type ScheduledAlarms,
 } from './notifications';
-import { partAlarmMs, partDurationMs, type Part, type TimerPreset } from './settings';
+import { dateKey } from './format';
+import {
+  partAlarmMs,
+  partDurationMs,
+  PLANNED_START_STAMP_KEY,
+  plannedStartTimestamp,
+  type Part,
+  type TimerPreset,
+} from './settings';
 import { useTimerSettings } from './settings-context';
 
 /**
@@ -48,6 +56,37 @@ export type LastSaved = {
   workSeconds: number;
   status: 'completed' | 'abandoned';
 };
+
+/**
+ * Mola borcunu (debtMs) fromIndex ve sonrasındaki molalardan SIRAYLA düşer.
+ * Her mola en fazla taban = min(mevcut süresi, minMs)'e iner; artan borç
+ * sonraki molaya taşar; tüm molalar tabandayken kalan borç uygulanmadan düşer
+ * (seans uzatılmaz). Taban "mevcut" süreye göredir: borçla inen mola tabanda
+ * durur, skip aktarımıyla büyüyen tekrar vergilendirilebilir — kendi içinde
+ * tutarlı, orijinal süreyi saklamak gerekmez.
+ * Dönen: [yeniParts, fiilen düşülen ms]. Hiç düşülemediyse parts aynen döner.
+ */
+function applyBreakDebt(
+  parts: Part[],
+  fromIndex: number,
+  debtMs: number,
+  minMs: number,
+): [Part[], number] {
+  if (debtMs <= 0) return [parts, 0];
+  let remaining = debtMs;
+  let applied = 0;
+  const next = parts.map((p, i) => {
+    if (i < fromIndex || p.type !== 'break' || remaining <= 0) return p;
+    const durMs = partDurationMs(p);
+    const floorMs = Math.min(durMs, minMs);
+    const cut = Math.min(remaining, durMs - floorMs);
+    if (cut <= 0) return p;
+    remaining -= cut;
+    applied += cut;
+    return { ...p, minutes: (durMs - cut) / 60_000 };
+  });
+  return applied > 0 ? [next, applied] : [parts, 0];
+}
 
 export function useWorkTimer() {
   const { settings, presets } = useTimerSettings();
@@ -89,6 +128,12 @@ export function useWorkTimer() {
   const autoAdvanceRef = useRef(settings.autoAdvance);
   // Oturum başında dondurulur (autoAdvance deseniyle aynı): ms cinsinden.
   const workEndReminderMsRef = useRef(0);
+  const minBreakMsRef = useRef(60_000);
+  // Duraklatma ANI (çalışma partında): devamda geçen süre mola borcu olur.
+  const pausedAtRef = useRef(0);
+  // Oturumda fiilen molalardan düşülen toplam (gecikme + duraklatmalar).
+  const breakDebtAppliedRef = useRef(0);
+  const [breakDebtAppliedMs, setBreakDebtAppliedMs] = useState(0);
   const pendingPresetRef = useRef(pendingPreset);
   const settingsRef = useRef(settings);
   const pendingProjectRef = useRef<string | null>(null);
@@ -424,13 +469,41 @@ export function useWorkTimer() {
     // yeni oturumun bildirimlerini susturmasın.
     stopAlarm();
     const preset = pendingPresetRef.current;
-    const parts = preset.parts;
-    sessionPartsRef.current = parts;
     autoAdvanceRef.current = settingsRef.current.autoAdvance;
     workEndReminderMsRef.current = Math.max(
       0,
       settingsRef.current.workEndReminderMinutes * 60_000,
     );
+    minBreakMsRef.current = settingsRef.current.minBreakMinutes * 60_000;
+    breakDebtAppliedRef.current = 0;
+    setBreakDebtAppliedMs(0);
+
+    // Planlı başlangıç: gecikme borcu yalnızca günün İLK başlatmasında
+    // hesaplanır; damga borç doğsun doğmasın basılır (erken başlangıç dahil).
+    // Senkron kv API'si bilinçli: start() guard'ı senkron kalır (çift-tık
+    // re-entrancy açılmaz) ve borç, endsAt/zamanlama kurulmadan ÖNCE dağıtılır.
+    let parts = preset.parts;
+    const plannedStart = settingsRef.current.plannedStartTime;
+    if (plannedStart) {
+      const today = dateKey(new Date());
+      let stampedDay: string | null = null;
+      try {
+        stampedDay = Storage.getItemSync(PLANNED_START_STAMP_KEY);
+      } catch {}
+      if (stampedDay !== today) {
+        try {
+          Storage.setItemSync(PLANNED_START_STAMP_KEY, today);
+        } catch {}
+        const lateMs = Date.now() - plannedStartTimestamp(plannedStart);
+        const [adjusted, applied] = applyBreakDebt(parts, 0, lateMs, minBreakMsRef.current);
+        if (applied > 0) {
+          parts = adjusted;
+          breakDebtAppliedRef.current = applied;
+          setBreakDebtAppliedMs(applied);
+        }
+      }
+    }
+    sessionPartsRef.current = parts;
     setSessionParts(parts);
     setSessionAuto(settingsRef.current.autoAdvance);
     setLastSaved(null);
@@ -530,6 +603,7 @@ export function useWorkTimer() {
     if (statusRef.current !== 'running') return;
     epochRef.current += 1;
     stopAlarm();
+    pausedAtRef.current = Date.now();
     pausedRemainingRef.current = Math.max(0, endsAtRef.current - Date.now());
     statusRef.current = 'paused';
     setStatus('paused');
@@ -541,6 +615,29 @@ export function useWorkTimer() {
   const resume = useCallback(async () => {
     if (statusRef.current !== 'paused') return;
     const epoch = ++epochRef.current;
+
+    // ÇALIŞMA partında duraklatılan süre mola borcudur: sonraki molalardan
+    // düşülür. Mutasyon rescheduleAlarms'tan ÖNCE senkron biter ki bildirimler
+    // kısalmış sürelerle kurulsun. Molada duraklatma borç doğurmaz (istek
+    // "çalışmada durdurulursa" yönündeydi).
+    const part = sessionPartsRef.current[phaseIndexRef.current];
+    if (part.type === 'work' && pausedAtRef.current > 0) {
+      const pausedMs = Math.max(0, Date.now() - pausedAtRef.current);
+      const [adjusted, applied] = applyBreakDebt(
+        sessionPartsRef.current,
+        phaseIndexRef.current + 1,
+        pausedMs,
+        minBreakMsRef.current,
+      );
+      if (applied > 0) {
+        sessionPartsRef.current = adjusted;
+        setSessionParts(adjusted);
+        breakDebtAppliedRef.current += applied;
+        setBreakDebtAppliedMs(breakDebtAppliedRef.current);
+      }
+    }
+    pausedAtRef.current = 0;
+
     endsAtRef.current = Date.now() + pausedRemainingRef.current;
     statusRef.current = 'running';
     setStatus('running');
@@ -567,6 +664,10 @@ export function useWorkTimer() {
     phaseIndexRef.current = 0;
     endsAtRef.current = 0;
     pausedRemainingRef.current = 0;
+    // Borç oturuma özeldir: sıfırlamayla ölür, sonraki seansa taşınmaz.
+    pausedAtRef.current = 0;
+    breakDebtAppliedRef.current = 0;
+    setBreakDebtAppliedMs(0);
     setStatus('idle');
     setPhaseIndex(0);
     setSecondsLeft(partSeconds(pendingPresetRef.current.parts[0]));
@@ -596,6 +697,8 @@ export function useWorkTimer() {
     lastSaved,
     /** false: bildirim izni yok/desteklenmiyor → arka planda alarm çalmaz. */
     notificationsGranted,
+    /** Oturumda molalardan fiilen düşülen toplam borç (gecikme + duraklatma), ms. */
+    breakDebtAppliedMs,
     start,
     advance,
     skipBreak,
