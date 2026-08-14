@@ -15,7 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useProjects, type Task } from '@/features/projects/projects-context';
-import { addDays, dateKey } from '@/features/timer/format';
+import { useSessions } from '@/features/sessions/sessions-context';
+import { addDays, dateKey, formatDuration } from '@/features/timer/format';
 import { Checkbox } from '@/features/ui/components';
 import { F, L, R } from '@/features/ui/theme';
 
@@ -76,6 +77,28 @@ export default function TaskDetailScreen() {
         .sort((a, b) => a.orderIndex - b.orderIndex),
     [tasks, id],
   );
+
+  // Bu göreve + tüm alt ağacına yazılmış oturumların toplam çalışma süresi.
+  // Rapor felsefesiyle aynı: okuma anında hesaplanır, sayaç saklanmaz.
+  const { sessions } = useSessions();
+  const totalWorkSeconds = useMemo(() => {
+    if (!id) return 0;
+    const subtree = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const t of tasks) {
+        if (t.parentTaskId && subtree.has(t.parentTaskId) && !subtree.has(t.id)) {
+          subtree.add(t.id);
+          grew = true;
+        }
+      }
+    }
+    return sessions.reduce(
+      (sum, s) => (s.taskId && subtree.has(s.taskId) ? sum + s.workSeconds : sum),
+      0,
+    );
+  }, [sessions, tasks, id]);
   const grandChildCount = (taskId: string) => tasks.filter((t) => t.parentTaskId === taskId).length;
 
   if (!task || !project) {
@@ -180,6 +203,17 @@ export default function TaskDetailScreen() {
                 {task.title}
               </Text>
             </View>
+
+            {/* Zamanlayıcıdan bu göreve yazılan toplam çalışma süresi */}
+            {totalWorkSeconds > 0 && (
+              <View style={styles.timeRow}>
+                <Feather name="clock" size={13} color={L.tertiary} />
+                <Text style={styles.timeText} maxFontSizeMultiplier={1.2}>
+                  Çalışılan süre: {formatDuration(totalWorkSeconds)}
+                  {children.length > 0 ? ' · alt görevler dahil' : ''}
+                </Text>
+              </View>
+            )}
 
             {/* Açıklama */}
             <TextInput
@@ -308,6 +342,16 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: L.canvas,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  timeText: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 12,
   },
   safeArea: {
     flex: 1,

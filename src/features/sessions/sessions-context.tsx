@@ -16,6 +16,8 @@ export type WorkSession = {
   id: string;
   /** null = "Projesiz". Proje silinse bile kayıt kalır. */
   projectId: string | null;
+  /** null = görevsiz. Görev silinse bile kayıt kalır ("Silinmiş görev"). */
+  taskId: string | null;
   presetId: string | null;
   startedAt: number; // epoch ms
   endedAt: number; // epoch ms
@@ -36,6 +38,7 @@ function sanitize(raw: unknown): WorkSession[] {
     .map((s) => ({
       id: String(s.id ?? `${s.startedAt ?? ''}`),
       projectId: typeof s.projectId === 'string' ? s.projectId : null,
+      taskId: typeof s.taskId === 'string' ? s.taskId : null,
       presetId: typeof s.presetId === 'string' ? s.presetId : null,
       startedAt: Number(s.startedAt) || 0,
       endedAt: Number(s.endedAt) || 0,

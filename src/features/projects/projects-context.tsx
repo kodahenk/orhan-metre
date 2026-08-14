@@ -63,6 +63,18 @@ export function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Oturum kayıtlarındaki görev göstergesi: "Üst görev › Alt görev" kırıntısı.
+ * taskId null → null (görevsiz); görev silinmişse "Silinmiş görev".
+ */
+export function taskPathLabel(tasks: Task[], taskId: string | null): string | null {
+  if (!taskId) return null;
+  const task = tasks.find((t) => t.id === taskId);
+  if (!task) return 'Silinmiş görev';
+  const parent = task.parentTaskId ? tasks.find((t) => t.id === task.parentTaskId) : null;
+  return parent ? `${parent.title} › ${task.title}` : task.title;
+}
+
 const PROJECTS_KEY = 'projects-v2';
 const TASKS_KEY = 'tasks-v1';
 const LEGACY_PROJECTS_KEY = 'projects-v1';

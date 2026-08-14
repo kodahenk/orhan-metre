@@ -44,6 +44,7 @@ const KEEP_AWAKE_TAG = 'work-timer';
 // ("takılı kalma" yok). Pencerenin kalanında yalnızca 15 sn'de bir bildirim var.
 const ALARM_VIBRATION_MS = 5_000;
 const LAST_PROJECT_KEY = 'timer-last-project';
+const LAST_TASK_KEY = 'timer-last-task';
 const MIN_RECORDED_WORK_SECONDS = 60;
 
 // Gösterim 10 sn'lik adımlarla yapılır (her saniye değişen sayaç dikkat
@@ -53,6 +54,7 @@ const partSeconds = (part: Part) => displaySeconds(partDurationMs(part));
 
 export type LastSaved = {
   projectId: string | null;
+  taskId: string | null;
   workSeconds: number;
   status: 'completed' | 'abandoned';
 };
@@ -90,7 +92,7 @@ function applyBreakDebt(
 
 export function useWorkTimer() {
   const { settings, presets } = useTimerSettings();
-  const { projects } = useProjects();
+  const { projects, tasks } = useProjects();
   const { addSession } = useSessions();
 
   const [status, setStatus] = useState<TimerStatus>('idle');
@@ -99,6 +101,10 @@ export function useWorkTimer() {
   // Boştayken seçili proje (kalıcı: son kullanılan); oturum başlayınca kilitlenir.
   const [pendingProjectId, setPendingProjectIdState] = useState<string | null>(null);
   const [sessionProjectId, setSessionProjectId] = useState<string | null>(null);
+  // Boştayken seçili görev (projeye bağlı; proje değişince sıfırlanır);
+  // oturum başlayınca kilitlenir ve kayda yazılır.
+  const [pendingTaskId, setPendingTaskIdState] = useState<string | null>(null);
+  const [sessionTaskId, setSessionTaskId] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<LastSaved | null>(null);
   // Oturum başlarken parçalar ve mod anlık kopyalanır; ayarlar oturum
   // ortasında değişirse yeni değerler bir SONRAKİ oturumda geçerli olur.
@@ -137,6 +143,8 @@ export function useWorkTimer() {
   const pendingPresetRef = useRef(pendingPreset);
   const settingsRef = useRef(settings);
   const pendingProjectRef = useRef<string | null>(null);
+  const pendingTaskRef = useRef<string | null>(null);
+  const tasksRef = useRef(tasks);
   const scheduledRef = useRef<ScheduledAlarms>(new Map());
   const alarmBoundaryRef = useRef<number | null>(null);
   const alarmEndsAtRef = useRef(0);
@@ -148,11 +156,16 @@ export function useWorkTimer() {
   // Oturum muhasebesi.
   const sessionActiveRef = useRef(false);
   const sessionProjectRef = useRef<string | null>(null);
+  const sessionTaskRef = useRef<string | null>(null);
   const sessionPresetRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef(0);
   const workMsRef = useRef(0);
   const breakMsRef = useRef(0);
   const completedWorkPartsRef = useRef(0);
+
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -163,9 +176,10 @@ export function useWorkTimer() {
     }
   }, [settings, pendingPreset]);
 
-  // Son kullanılan proje kalıcıdır. Kullanıcı okuma tamamlanmadan seçim
-  // yaptıysa (touched) gecikmiş eski değer seçimi ezmesin.
+  // Son kullanılan proje ve görev kalıcıdır. Kullanıcı okuma tamamlanmadan
+  // seçim yaptıysa (touched) gecikmiş eski değer seçimi ezmesin.
   const pendingProjectTouchedRef = useRef(false);
+  const pendingTaskTouchedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,17 +191,40 @@ export function useWorkTimer() {
         }
       })
       .catch(() => {});
+    Storage.getItem(LAST_TASK_KEY)
+      .then((raw) => {
+        if (!cancelled && !pendingTaskTouchedRef.current && raw) {
+          // Geçerlilik (görev hâlâ var mı / projesiyle uyumlu mu) seçim
+          // gösterilirken ve start()'ta denetlenir; burada ham kimlik yüklenir.
+          pendingTaskRef.current = raw === 'null' ? null : raw;
+          setPendingTaskIdState(pendingTaskRef.current);
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const setPendingProject = useCallback((projectId: string | null) => {
-    pendingProjectTouchedRef.current = true;
-    pendingProjectRef.current = projectId;
-    setPendingProjectIdState(projectId);
-    void Storage.setItem(LAST_PROJECT_KEY, projectId ?? 'null').catch(() => {});
+  const setPendingTask = useCallback((taskId: string | null) => {
+    pendingTaskTouchedRef.current = true;
+    pendingTaskRef.current = taskId;
+    setPendingTaskIdState(taskId);
+    void Storage.setItem(LAST_TASK_KEY, taskId ?? 'null').catch(() => {});
   }, []);
+
+  const setPendingProject = useCallback(
+    (projectId: string | null) => {
+      if (pendingProjectRef.current === projectId) return;
+      pendingProjectTouchedRef.current = true;
+      pendingProjectRef.current = projectId;
+      setPendingProjectIdState(projectId);
+      void Storage.setItem(LAST_PROJECT_KEY, projectId ?? 'null').catch(() => {});
+      // Görev projeye bağlıdır: proje değişince seçili görev sıfırlanır.
+      setPendingTask(null);
+    },
+    [setPendingTask],
+  );
 
   const stopAlarm = useCallback(() => {
     Vibration.cancel();
@@ -247,6 +284,7 @@ export function useWorkTimer() {
       const session: WorkSession = {
         id: newId(),
         projectId: sessionProjectRef.current,
+        taskId: sessionTaskRef.current,
         presetId: sessionPresetRef.current,
         startedAt: sessionStartedAtRef.current,
         endedAt: endedAtMs ?? Date.now(),
@@ -257,7 +295,12 @@ export function useWorkTimer() {
         status: finalStatus,
       };
       addSession(session);
-      setLastSaved({ projectId: session.projectId, workSeconds, status: finalStatus });
+      setLastSaved({
+        projectId: session.projectId,
+        taskId: session.taskId,
+        workSeconds,
+        status: finalStatus,
+      });
     },
     [addSession],
   );
@@ -508,9 +551,19 @@ export function useWorkTimer() {
     setSessionAuto(settingsRef.current.autoAdvance);
     setLastSaved(null);
 
-    // Oturum muhasebesini başlat: proje/önayar kilitlenir.
+    // Oturum muhasebesini başlat: proje/görev/önayar kilitlenir.
     sessionActiveRef.current = true;
     sessionProjectRef.current = pendingProjectRef.current;
+    // Görev kilidi: yalnızca kilitlenen projeye ait, hâlâ var olan ve
+    // tamamlanmamış görev yazılır (kalıcı seçim bayatlamış olabilir).
+    const pendingTask = pendingTaskRef.current
+      ? tasksRef.current.find((t) => t.id === pendingTaskRef.current)
+      : undefined;
+    sessionTaskRef.current =
+      pendingTask && !pendingTask.done && pendingTask.projectId === pendingProjectRef.current
+        ? pendingTask.id
+        : null;
+    setSessionTaskId(sessionTaskRef.current);
     sessionPresetRef.current = preset.id;
     sessionStartedAtRef.current = Date.now();
     workMsRef.current = 0;
@@ -674,6 +727,8 @@ export function useWorkTimer() {
     setSessionParts(null);
     setSessionAuto(null);
     setSessionProjectId(null);
+    sessionTaskRef.current = null;
+    setSessionTaskId(null);
     scheduledRef.current = new Map();
     void cancelAllSessionAlarms();
   }, [stopAlarm, finishSession]);
@@ -691,6 +746,11 @@ export function useWorkTimer() {
     setPendingProject,
     /** Oturum başladığında kilitlenen proje. */
     sessionProjectId,
+    /** Boşta: seçilecek görev (projeye bağlı). Oturumda: değişmez. */
+    pendingTaskId,
+    setPendingTask,
+    /** Oturum başladığında kilitlenen görev (kayda yazılır). */
+    sessionTaskId,
     /** Boştaki seçime göre çalışacak önayar. */
     pendingPresetName: pendingPreset.name,
     /** Son kaydedilen oturum özeti (done ekranında gösterilir). */

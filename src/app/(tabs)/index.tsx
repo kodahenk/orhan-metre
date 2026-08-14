@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useProjects } from '@/features/projects/projects-context';
+import { taskPathLabel, useProjects } from '@/features/projects/projects-context';
 import { formatClock, formatDate, formatDuration, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
@@ -19,14 +19,16 @@ import {
 import { F, L } from '@/features/ui/theme';
 
 const NO_PROJECT_KEY = '__none__';
+const NO_TASK_KEY = '__no_task__';
 
 export default function TimerTabScreen() {
   const router = useRouter();
   const timer = useTimer();
   const { settings } = useTimerSettings();
-  const { projects } = useProjects();
+  const { projects, tasks } = useProjects();
   const { width, height } = useWindowDimensions();
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [taskPickerOpen, setTaskPickerOpen] = useState(false);
 
   const running = timer.status === 'running';
   const between = timer.status === 'between';
@@ -78,6 +80,44 @@ export default function TimerTabScreen() {
   const lockedProject = findProject(timer.sessionProjectId);
   const lastSavedProject = timer.lastSaved ? findProject(timer.lastSaved.projectId) : null;
 
+  // Görev seçici: seçili projenin tamamlanmamış görevleri. Üst düzey görevler
+  // + tüm alt ağaçları (derinlik fark etmeksizin) tek girinti düzeyiyle.
+  const projectTasks = useMemo(
+    () =>
+      pendingProject
+        ? tasks
+            .filter((t) => t.projectId === pendingProject.id && !t.done)
+            .sort((a, b) => a.orderIndex - b.orderIndex)
+        : [],
+    [tasks, pendingProject],
+  );
+  const taskOptions: PickerOption[] = useMemo(() => {
+    const options: PickerOption[] = [{ key: NO_TASK_KEY, label: 'Görevsiz' }];
+    const ids = new Set(projectTasks.map((t) => t.id));
+    // Üst düzey: ebeveyni yok VEYA ebeveyni listede değil (tamamlanmış/silinmiş).
+    const tops = projectTasks.filter((t) => !t.parentTaskId || !ids.has(t.parentTaskId));
+    for (const top of tops) {
+      options.push({ key: top.id, label: top.title });
+      const stack = [top.id];
+      while (stack.length > 0) {
+        const parentId = stack.pop()!;
+        for (const child of projectTasks.filter((t) => t.parentTaskId === parentId)) {
+          options.push({ key: child.id, label: child.title, indent: true });
+          stack.push(child.id);
+        }
+      }
+    }
+    return options;
+  }, [projectTasks]);
+
+  // Kalıcı seçim bayatlamış olabilir (görev silinmiş/tamamlanmış/başka proje).
+  const pendingTask =
+    projectTasks.find((t) => t.id === timer.pendingTaskId) ?? null;
+  const lockedTaskLabel = timer.sessionTaskId ? taskPathLabel(tasks, timer.sessionTaskId) : null;
+  const lastSavedTaskLabel = timer.lastSaved?.taskId
+    ? taskPathLabel(tasks, timer.lastSaved.taskId)
+    : null;
+
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -95,7 +135,7 @@ export default function TimerTabScreen() {
             <Text style={styles.phaseLabel} maxFontSizeMultiplier={1.3}>
               {topLabel}
             </Text>
-            {/* Oturumda kilitli proje etiketi */}
+            {/* Oturumda kilitli proje + görev etiketi */}
             {!idle && lockedProject && (
               <View style={styles.lockedProjectRow}>
                 <View style={[styles.projectDot, { backgroundColor: lockedProject.color }]} />
@@ -103,6 +143,11 @@ export default function TimerTabScreen() {
                   {lockedProject.name}
                 </Text>
               </View>
+            )}
+            {!idle && lockedTaskLabel && (
+              <Text style={styles.lockedTaskText} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+                {lockedTaskLabel}
+              </Text>
             )}
             <View style={styles.dots}>
               {parts.map((p, i) => (
@@ -171,6 +216,20 @@ export default function TimerTabScreen() {
                   </Text>
                   <Feather name="chevron-down" size={15} color={L.tertiary} />
                 </Pressable>
+                {/* Görev seçimi — yalnızca projenin açık görevi varsa görünür;
+                    oturum kaydı bu göreve yazılır. */}
+                {pendingProject && projectTasks.length > 0 && (
+                  <Pressable
+                    style={({ pressed }) => [styles.projectChip, pressed && styles.chipPressed]}
+                    onPress={() => setTaskPickerOpen(true)}
+                  >
+                    <Feather name="check-square" size={14} color={L.ink2} />
+                    <Text style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
+                      {pendingTask ? pendingTask.title : 'Görevsiz'}
+                    </Text>
+                    <Feather name="chevron-down" size={15} color={L.tertiary} />
+                  </Pressable>
+                )}
                 <Text style={styles.presetCaption} maxFontSizeMultiplier={1.2}>
                   Önayar: {timer.pendingPresetName}
                 </Text>
@@ -203,7 +262,8 @@ export default function TimerTabScreen() {
               <>
                 {timer.lastSaved && (
                   <Text style={styles.savedLine} maxFontSizeMultiplier={1.2}>
-                    Kaydedildi: {lastSavedProject ? lastSavedProject.name : 'Projesiz'} ·{' '}
+                    Kaydedildi: {lastSavedProject ? lastSavedProject.name : 'Projesiz'}
+                    {lastSavedTaskLabel ? ` · ${lastSavedTaskLabel}` : ''} ·{' '}
                     {formatDuration(timer.lastSaved.workSeconds)} çalışma
                   </Text>
                 )}
@@ -226,6 +286,14 @@ export default function TimerTabScreen() {
         selectedKey={timer.pendingProjectId ?? NO_PROJECT_KEY}
         onSelect={(key) => timer.setPendingProject(key === NO_PROJECT_KEY ? null : key)}
         onClose={() => setProjectPickerOpen(false)}
+      />
+      <PickerSheet
+        visible={taskPickerOpen}
+        title="Görev seç"
+        options={taskOptions}
+        selectedKey={pendingTask?.id ?? NO_TASK_KEY}
+        onSelect={(key) => timer.setPendingTask(key === NO_TASK_KEY ? null : key)}
+        onClose={() => setTaskPickerOpen(false)}
       />
     </View>
   );
@@ -265,6 +333,12 @@ const styles = StyleSheet.create({
     color: L.tertiary,
     fontFamily: F.uiMed,
     fontSize: 12,
+  },
+  lockedTaskText: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 12,
+    maxWidth: 280,
   },
   dots: {
     flexDirection: 'row',

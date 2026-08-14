@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 
-import { useProjects } from '@/features/projects/projects-context';
+import { taskPathLabel, useProjects } from '@/features/projects/projects-context';
 import { formatClock, formatDate, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
@@ -58,9 +58,12 @@ export default function FullscreenTimerScreen() {
   const router = useRouter();
   const timer = useTimer();
   const { settings } = useTimerSettings();
-  const { projects } = useProjects();
+  const { projects, tasks } = useProjects();
   const sessionProject = timer.sessionProjectId
     ? projects.find((p) => p.id === timer.sessionProjectId)
+    : null;
+  const sessionTaskLabel = timer.sessionTaskId
+    ? taskPathLabel(tasks, timer.sessionTaskId)
     : null;
   const running = timer.status === 'running';
   const between = timer.status === 'between';
@@ -241,6 +244,11 @@ export default function FullscreenTimerScreen() {
               {sessionProject.name}
             </Text>
           </View>
+        )}
+        {sessionTaskLabel && (
+          <Text style={styles.taskText} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+            {sessionTaskLabel}
+          </Text>
         )}
         <View style={styles.dots}>
           {parts.map((p, i) => (
@@ -448,6 +456,13 @@ const styles = StyleSheet.create({
     fontFamily: F.mono,
     fontSize: 12,
     letterSpacing: 1,
+  },
+  taskText: {
+    color: D.text3,
+    fontFamily: F.mono,
+    fontSize: 11,
+    letterSpacing: 1,
+    maxWidth: 300,
   },
   dots: {
     flexDirection: 'row',
