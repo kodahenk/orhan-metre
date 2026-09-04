@@ -16,7 +16,7 @@ import {
 
 import { taskPathLabel, useProjects } from '@/features/projects/projects-context';
 import { formatClock, formatDate, formatTime } from '@/features/timer/format';
-import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
+import { DISPLAY_SIZE_SCALE, PHASE_LABELS, PHASE_ORDER } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
 import { D, F, R } from '@/features/ui/theme';
@@ -50,7 +50,7 @@ function TimerButton({ icon, label, onPress, primary }: TimerButtonProps) {
   );
 }
 
-// Sayaç çalışırken arayüz (part adı, butonlar) bu süre sonunda kendiliğinden
+// Sayaç çalışırken arayüz (faz adı, butonlar) bu süre sonunda kendiliğinden
 // gizlenir; ekrana dokunmak arayüzü açıp kapatır.
 const CHROME_HIDE_DELAY_MS = 10_000;
 
@@ -62,11 +62,12 @@ export default function FullscreenTimerScreen() {
   const sessionProject = timer.sessionProjectId
     ? projects.find((p) => p.id === timer.sessionProjectId)
     : null;
-  const sessionTaskLabel = timer.sessionTaskId
-    ? taskPathLabel(tasks, timer.sessionTaskId)
-    : null;
+  const sessionTaskLabel = timer.sessionTaskId ? taskPathLabel(tasks, timer.sessionTaskId) : null;
+  const idle = timer.status === 'idle';
   const running = timer.status === 'running';
-  const between = timer.status === 'between';
+  const waiting = timer.status === 'waiting';
+  // Nefes Al: hem akarken hem beklerken sonraki tura geçilebilir.
+  const inBreathe = (running && timer.phase === 'breathe') || waiting;
   const { width, height } = useWindowDimensions();
 
   // Zamanlayıcı ekranı odaktayken tam ekran: sistem çubukları gizlenir,
@@ -90,6 +91,15 @@ export default function FullscreenTimerScreen() {
   const timeFontSize = fitFontSize * DISPLAY_SIZE_SCALE[settings.display.size];
   const clockFontSize = Math.max(18, Math.round(timeFontSize * 0.3));
   const dateFontSize = Math.max(15, Math.round(timeFontSize * 0.22));
+
+  // Faz rengi: Odak gri, Tekrar mavi, Nefes Al sarı. Beklerken sıradaki tur
+  // için odak süresi gösterildiğinden gri kullanılır.
+  const timeColor = (() => {
+    if (idle || waiting) return D.text;
+    if (timer.phase === 'review') return D.sky;
+    if (timer.phase === 'breathe') return D.yellow;
+    return D.text;
+  })();
 
   // Tarih ve saat satırları: 10 sn'de bir tazelenir; değer değişmedikçe
   // setState render tetiklemez (tarih günde bir, saat dakikada bir değişir).
@@ -149,25 +159,25 @@ export default function FullscreenTimerScreen() {
     return () => clearInterval(id);
   }, [chromeVisible, shiftX, shiftY]);
 
-  // Çalışırken 10 sn hareketsizlik sonrası arayüzü gizle.
-  // Alarm çalarken gizleme askıya alınır: "Susturmak için dokun" ipucu
-  // alarm penceresi boyunca görünür kalmalı.
+  // Çalışırken 10 sn hareketsizlik sonrası arayüzü gizle. Alarm çalarken
+  // gizleme askıya alınır: "Susturmak için dokun" ipucu görünür kalmalı.
   useEffect(() => {
     if (!running || !chromeVisible || timer.alarmActive) return;
     const id = setTimeout(() => setChromeVisible(false), CHROME_HIDE_DELAY_MS);
     return () => clearTimeout(id);
   }, [running, chromeVisible, revealNonce, timer.alarmActive]);
 
-  // Sayaç durunca (bekleme dahil) ve part değişince arayüz görünür olsun.
+  // Sayaç durunca (bekleme dahil) ve faz değişince arayüz görünür olsun.
   useEffect(() => {
     if (!running) setChromeVisible(true);
   }, [running]);
   useEffect(() => {
-    if (timer.phaseIndex > 0) {
+    if (!idle) {
       setChromeVisible(true);
       setRevealNonce((n) => n + 1);
     }
-  }, [timer.phaseIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timer.phase, timer.round]);
 
   const onScreenPress = useCallback(() => {
     if (timer.alarmActive) {
@@ -184,26 +194,11 @@ export default function FullscreenTimerScreen() {
     }
   }, [timer.alarmActive, timer.acknowledgeAlarm, running]);
 
-  const parts = timer.parts;
-  const phase = parts[timer.phaseIndex];
-  const nextPart = between ? parts[timer.phaseIndex + 1] : null;
-
-  // Rakam rengi türe göre: çalışma gri, mola sarı. Beklemede sıradaki partın
-  // türü esas alınır (gösterilen süre de onunki); boşta ilk part, bitince
-  // nötr gri.
-  const colorPart = between ? (nextPart ?? phase) : phase;
-  const timeColor =
-    timer.status === 'done' || colorPart.type !== 'break' ? D.text : D.yellow;
-
   const topLabel = (() => {
-    if (timer.status === 'idle') return 'Hazır';
-    if (timer.status === 'done') return 'Tamamlandı';
-    if (between && nextPart) return `Sıradaki: ${nextPart.label}`;
-    return phase.label;
+    if (idle) return 'Hazır';
+    if (waiting) return 'Nefes bitti';
+    return PHASE_LABELS[timer.phase];
   })();
-
-  // Beklemede etkin nokta sıradaki partı gösterir.
-  const activeDot = between ? timer.phaseIndex + 1 : timer.phaseIndex;
 
   return (
     <Pressable style={styles.screen} onPress={onScreenPress} android_disableSound>
@@ -221,9 +216,9 @@ export default function FullscreenTimerScreen() {
         </Pressable>
       </Animated.View>
 
-      {/* Alarm penceresi göstergesi: hangi aşamada olunduğu üstten okunur.
-          Chrome animasyonundan bağımsız — alarm sürdükçe hep görünür;
-          pointerEvents kapalı ki ekrana dokunup susturmayı engellemesin. */}
+      {/* Alarm göstergesi: hangi aşamada olunduğu üstten okunur. Chrome
+          animasyonundan bağımsız; pointerEvents kapalı ki ekrana dokunup
+          susturmayı engellemesin. */}
       {timer.alarmActive && (
         <View style={styles.alarmBadge} pointerEvents="none">
           <Feather name="bell" size={20} color={D.yellow} />
@@ -251,17 +246,18 @@ export default function FullscreenTimerScreen() {
           </Text>
         )}
         <View style={styles.dots}>
-          {parts.map((p, i) => (
+          {PHASE_ORDER.map((p) => (
             <View
-              key={p.id}
-              style={[
-                styles.dot,
-                i < activeDot && styles.dotPast,
-                i === activeDot && timer.status !== 'idle' && styles.dotActive,
-              ]}
+              key={p}
+              style={[styles.dot, !idle && p === timer.phase && styles.dotActive]}
             />
           ))}
         </View>
+        {!idle && (
+          <Text style={styles.roundText} maxFontSizeMultiplier={1.2}>
+            {timer.round + 1}. TUR · {timer.completedRounds} TAMAM
+          </Text>
+        )}
       </Animated.View>
 
       {/* Rakamlar + saat + tarih tek grup: soluklaştırma ve piksel kaydırma
@@ -303,28 +299,24 @@ export default function FullscreenTimerScreen() {
         style={[styles.chrome, { opacity: chromeOpacity }]}
         pointerEvents={chromeVisible ? 'auto' : 'none'}
       >
-        {/* Boşta: planlı başlangıç bilgisi. Oturumda: molalardan fiilen
-            düşülen borç (gecikme + duraklatma) toplamı. */}
-        {timer.status === 'idle' && settings.plannedStartTime && (
+        {/* Boşta: planlı başlangıç. Oturumda: nefeslerden düşülen borç. */}
+        {idle && settings.plannedStartTime && (
           <Text style={styles.model} maxFontSizeMultiplier={1.3}>
             Planlı başlangıç: {settings.plannedStartTime}
           </Text>
         )}
-        {timer.breakDebtAppliedMs > 0 && timer.status !== 'idle' && (
+        {timer.breatheDebtAppliedMs > 0 && !idle && (
           <Text style={styles.model} maxFontSizeMultiplier={1.3}>
-            Molalardan düşüldü: {Math.max(1, Math.round(timer.breakDebtAppliedMs / 60_000))} dk
+            Nefeslerden düşüldü: {Math.max(1, Math.round(timer.breatheDebtAppliedMs / 60_000))} dk
           </Text>
         )}
 
-        {/* İzin reddedildiyse/desteklenmiyorsa oturum boyunca uyar: arka
-            planda alarm çalmayacak, kullanıcı bunu bilmeli. */}
-        {timer.notificationsGranted === false &&
-          timer.status !== 'idle' &&
-          timer.status !== 'done' && (
-            <Text style={styles.model} maxFontSizeMultiplier={1.2}>
-              Bildirim izni yok — uygulama arka plandayken alarm çalmaz
-            </Text>
-          )}
+        {/* İzin reddedildiyse/desteklenmiyorsa oturum boyunca uyar. */}
+        {timer.notificationsGranted === false && !idle && (
+          <Text style={styles.model} maxFontSizeMultiplier={1.2}>
+            Bildirim izni yok — uygulama arka plandayken alarm çalmaz
+          </Text>
+        )}
 
         {timer.alarmActive && (
           <View style={styles.hintRow}>
@@ -335,60 +327,30 @@ export default function FullscreenTimerScreen() {
           </View>
         )}
 
-        {timer.status === 'idle' && (
-          <TimerButton icon="play" label="Başlat" onPress={timer.start} primary />
-        )}
+        {idle && <TimerButton icon="play" label="Başlat" onPress={timer.start} primary />}
 
-        {/* Partlar arası bekleme: Devam ile geç; otomatik modda alarm bitince
-            kendiliğinden geçer. Alarm çalarken butonlar gizli (running bloğu
-            ve ana ekranla tutarlı): dokunuş önce susturur, aceleyle Sıfırla'ya
-            basılıp seans kaybedilmez. */}
-        {between && !timer.alarmActive && (
-          <>
-            {timer.autoAdvance && (
-              <Text style={styles.model} maxFontSizeMultiplier={1.3}>
-                Alarm süresi dolunca otomatik başlar
-              </Text>
-            )}
-            <View style={styles.buttonRow}>
-              <TimerButton icon="play" label="Devam" onPress={timer.advance} primary />
-              <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
-            </View>
-          </>
+        {/* Nefes Al'da otomatik geçiş bilgisi */}
+        {running && timer.phase === 'breathe' && !timer.alarmActive && timer.autoAdvance && (
+          <Text style={styles.model} maxFontSizeMultiplier={1.3}>
+            Nefes bitince sonraki tur kendiliğinden başlar
+          </Text>
         )}
 
         {/* Alarm çalarken butonlar gizli: her dokunuş yalnızca alarmı susturur,
-            aceleyle Sıfırla'ya basılıp seans kaybedilmez. */}
-        {running && !timer.alarmActive && (
-          <>
-            {/* Mola atlanabilir; kalan süre sıradaki MOLAYA taşınır (dinlenme
-                ertelenir), sonrasında mola yoksa çalışmaya (süre kaybolmasın). */}
-            {phase.type === 'break' && timer.phaseIndex < parts.length - 1 && (
-              <Text style={styles.model} maxFontSizeMultiplier={1.3}>
-                {parts.slice(timer.phaseIndex + 1).some((p) => p.type === 'break')
-                  ? 'Atlarsan kalan süre sıradaki molaya eklenir'
-                  : 'Atlarsan kalan süre sıradaki çalışmaya eklenir'}
-              </Text>
-            )}
-            <View style={styles.buttonRow}>
-              {phase.type === 'break' && (
-                <TimerButton icon="skip-forward" label="Atla" onPress={timer.skipBreak} primary />
-              )}
-              <TimerButton icon="pause" label="Duraklat" onPress={timer.pause} />
-              <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
-            </View>
-          </>
-        )}
-
-        {timer.status === 'paused' && (
+            aceleyle Bitir'e basılıp seans kapatılmaz. */}
+        {!idle && !timer.alarmActive && (
           <View style={styles.buttonRow}>
-            <TimerButton icon="play" label="Devam" onPress={timer.resume} primary />
-            <TimerButton icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
+            {inBreathe && (
+              <TimerButton icon="play" label="Sonraki tur" onPress={timer.advance} primary />
+            )}
+            {running && !inBreathe && (
+              <TimerButton icon="pause" label="Duraklat" onPress={timer.pause} />
+            )}
+            {timer.status === 'paused' && (
+              <TimerButton icon="play" label="Devam" onPress={timer.resume} primary />
+            )}
+            <TimerButton icon="square" label="Bitir" onPress={timer.finish} />
           </View>
-        )}
-
-        {timer.status === 'done' && !timer.alarmActive && (
-          <TimerButton icon="refresh-ccw" label="Yeniden Başlat" onPress={timer.reset} primary />
         )}
       </Animated.View>
     </Pressable>
@@ -464,6 +426,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     maxWidth: 300,
   },
+  roundText: {
+    color: D.text3,
+    fontFamily: F.mono,
+    fontSize: 11,
+    letterSpacing: 2,
+  },
   dots: {
     flexDirection: 'row',
     gap: 10,
@@ -473,9 +441,6 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: D.dotOff,
-  },
-  dotPast: {
-    backgroundColor: D.dotPast,
   },
   dotActive: {
     backgroundColor: D.text,

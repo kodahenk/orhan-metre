@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { taskPathLabel, useProjects } from '@/features/projects/projects-context';
 import { formatClock, formatDate, formatDuration, formatTime } from '@/features/timer/format';
-import { DISPLAY_SIZE_SCALE } from '@/features/timer/settings';
+import { DISPLAY_SIZE_SCALE, PHASE_LABELS, PHASE_ORDER } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
 import {
@@ -30,9 +30,11 @@ export default function TimerTabScreen() {
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
 
-  const running = timer.status === 'running';
-  const between = timer.status === 'between';
   const idle = timer.status === 'idle';
+  const running = timer.status === 'running';
+  const waiting = timer.status === 'waiting';
+  // Nefes Al: hem akarken hem beklerken sonraki tura geçilebilir.
+  const inBreathe = (running && timer.phase === 'breathe') || waiting;
 
   const fitFontSize = Math.max(40, Math.min(140, width * 0.24, (height - 430) / 1.32));
   const timeFontSize = fitFontSize * DISPLAY_SIZE_SCALE[settings.display.size];
@@ -50,18 +52,11 @@ export default function TimerTabScreen() {
     return () => clearInterval(id);
   }, []);
 
-  const parts = timer.parts;
-  const phase = parts[timer.phaseIndex];
-  const nextPart = between ? parts[timer.phaseIndex + 1] : null;
-
   const topLabel = (() => {
     if (idle) return 'Hazır';
-    if (timer.status === 'done') return 'Tamamlandı';
-    if (between && nextPart) return `Sıradaki: ${nextPart.label}`;
-    return phase.label;
+    if (waiting) return 'Nefes bitti';
+    return PHASE_LABELS[timer.phase];
   })();
-
-  const activeDot = between ? timer.phaseIndex + 1 : timer.phaseIndex;
 
   // Proje seçici: üst projeler + altında girintili alt projeler + "Projesiz".
   const projectOptions: PickerOption[] = useMemo(() => {
@@ -80,8 +75,7 @@ export default function TimerTabScreen() {
   const lockedProject = findProject(timer.sessionProjectId);
   const lastSavedProject = timer.lastSaved ? findProject(timer.lastSaved.projectId) : null;
 
-  // Görev seçici: seçili projenin tamamlanmamış görevleri. Üst düzey görevler
-  // + tüm alt ağaçları (derinlik fark etmeksizin) tek girinti düzeyiyle.
+  // Görev seçici: seçili projenin tamamlanmamış görevleri; alt görevler girintili.
   const projectTasks = useMemo(
     () =>
       pendingProject
@@ -94,7 +88,6 @@ export default function TimerTabScreen() {
   const taskOptions: PickerOption[] = useMemo(() => {
     const options: PickerOption[] = [{ key: NO_TASK_KEY, label: 'Görevsiz' }];
     const ids = new Set(projectTasks.map((t) => t.id));
-    // Üst düzey: ebeveyni yok VEYA ebeveyni listede değil (tamamlanmış/silinmiş).
     const tops = projectTasks.filter((t) => !t.parentTaskId || !ids.has(t.parentTaskId));
     for (const top of tops) {
       options.push({ key: top.id, label: top.title });
@@ -110,9 +103,7 @@ export default function TimerTabScreen() {
     return options;
   }, [projectTasks]);
 
-  // Kalıcı seçim bayatlamış olabilir (görev silinmiş/tamamlanmış/başka proje).
-  const pendingTask =
-    projectTasks.find((t) => t.id === timer.pendingTaskId) ?? null;
+  const pendingTask = projectTasks.find((t) => t.id === timer.pendingTaskId) ?? null;
   const lockedTaskLabel = timer.sessionTaskId ? taskPathLabel(tasks, timer.sessionTaskId) : null;
   const lastSavedTaskLabel = timer.lastSaved?.taskId
     ? taskPathLabel(tasks, timer.lastSaved.taskId)
@@ -149,19 +140,24 @@ export default function TimerTabScreen() {
                 {lockedTaskLabel}
               </Text>
             )}
+            {/* Turdaki üç faz: hangisinde olunduğu tek bakışta görünür. */}
             <View style={styles.dots}>
-              {parts.map((p, i) => (
+              {PHASE_ORDER.map((p) => (
                 <View
-                  key={p.id}
+                  key={p}
                   style={[
                     styles.dot,
-                    p.type === 'break' && styles.dotBreak,
-                    i < activeDot && styles.dotPast,
-                    i === activeDot && !idle && styles.dotActive,
+                    p === 'breathe' && styles.dotBreathe,
+                    !idle && p === timer.phase && styles.dotActive,
                   ]}
                 />
               ))}
             </View>
+            {!idle && (
+              <Text style={styles.roundText} maxFontSizeMultiplier={1.2}>
+                {timer.round + 1}. tur · {timer.completedRounds} tamamlandı
+              </Text>
+            )}
           </View>
 
           <View style={styles.timeGroup}>
@@ -201,6 +197,14 @@ export default function TimerTabScreen() {
 
             {idle && (
               <>
+                {timer.lastSaved && (
+                  <Text style={styles.savedLine} maxFontSizeMultiplier={1.2}>
+                    Kaydedildi: {lastSavedProject ? lastSavedProject.name : 'Projesiz'}
+                    {lastSavedTaskLabel ? ` · ${lastSavedTaskLabel}` : ''} ·{' '}
+                    {formatDuration(timer.lastSaved.workSeconds)} ·{' '}
+                    {timer.lastSaved.completedRounds} tur
+                  </Text>
+                )}
                 {/* Proje seçimi — oturum bu projeye yazılır */}
                 <Pressable
                   style={({ pressed }) => [styles.projectChip, pressed && styles.chipPressed]}
@@ -216,8 +220,7 @@ export default function TimerTabScreen() {
                   </Text>
                   <Feather name="chevron-down" size={15} color={L.tertiary} />
                 </Pressable>
-                {/* Görev seçimi — yalnızca projenin açık görevi varsa görünür;
-                    oturum kaydı bu göreve yazılır. */}
+                {/* Görev seçimi — projenin açık görevi varsa */}
                 {pendingProject && projectTasks.length > 0 && (
                   <Pressable
                     style={({ pressed }) => [styles.projectChip, pressed && styles.chipPressed]}
@@ -231,49 +234,32 @@ export default function TimerTabScreen() {
                   </Pressable>
                 )}
                 <Text style={styles.presetCaption} maxFontSizeMultiplier={1.2}>
-                  Önayar: {timer.pendingPresetName}
+                  {timer.pendingPresetName} · {timer.pendingPreset.focusMinutes}+
+                  {timer.pendingPreset.reviewMinutes}+{timer.pendingPreset.breatheMinutes} dk
                 </Text>
                 <Button icon="play" label="Başlat" onPress={timer.start} variant="primary" />
               </>
             )}
 
-            {between && !timer.alarmActive && (
+            {/* Nefes Al: sonraki tura geç. Odak/Tekrar: duraklat. */}
+            {!idle && !timer.alarmActive && (
               <View style={styles.buttonRow}>
-                <Button icon="play" label="Devam" onPress={timer.advance} variant="primary" />
-                <Button icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
-              </View>
-            )}
-
-            {running && !timer.alarmActive && (
-              <View style={styles.buttonRow}>
-                <Button icon="pause" label="Duraklat" onPress={timer.pause} />
-                <Button icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
-              </View>
-            )}
-
-            {timer.status === 'paused' && (
-              <View style={styles.buttonRow}>
-                <Button icon="play" label="Devam" onPress={timer.resume} variant="primary" />
-                <Button icon="rotate-ccw" label="Sıfırla" onPress={timer.reset} />
-              </View>
-            )}
-
-            {timer.status === 'done' && !timer.alarmActive && (
-              <>
-                {timer.lastSaved && (
-                  <Text style={styles.savedLine} maxFontSizeMultiplier={1.2}>
-                    Kaydedildi: {lastSavedProject ? lastSavedProject.name : 'Projesiz'}
-                    {lastSavedTaskLabel ? ` · ${lastSavedTaskLabel}` : ''} ·{' '}
-                    {formatDuration(timer.lastSaved.workSeconds)} çalışma
-                  </Text>
+                {inBreathe && (
+                  <Button
+                    icon="play"
+                    label="Sonraki tur"
+                    onPress={timer.advance}
+                    variant="primary"
+                  />
                 )}
-                <Button
-                  icon="refresh-ccw"
-                  label="Yeniden Başlat"
-                  onPress={timer.reset}
-                  variant="primary"
-                />
-              </>
+                {running && !inBreathe && (
+                  <Button icon="pause" label="Duraklat" onPress={timer.pause} />
+                )}
+                {timer.status === 'paused' && (
+                  <Button icon="play" label="Devam" onPress={timer.resume} variant="primary" />
+                )}
+                <Button icon="square" label="Bitir" onPress={timer.finish} />
+              </View>
             )}
           </View>
         </Pressable>
@@ -340,6 +326,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     maxWidth: 280,
   },
+  roundText: {
+    color: L.tertiary,
+    fontFamily: F.uiMed,
+    fontSize: 12,
+  },
   dots: {
     flexDirection: 'row',
     gap: 8,
@@ -350,13 +341,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: L.hairline,
   },
-  dotBreak: {
+  dotBreathe: {
     borderWidth: 1,
     borderColor: L.borderActive,
     backgroundColor: L.surface,
-  },
-  dotPast: {
-    backgroundColor: L.borderActive,
   },
   dotActive: {
     backgroundColor: L.accent,
@@ -423,6 +411,8 @@ const styles = StyleSheet.create({
     color: L.success,
     fontFamily: F.uiMed,
     fontSize: 13,
+    textAlign: 'center',
+    paddingHorizontal: 16,
   },
   hintRow: {
     flexDirection: 'row',

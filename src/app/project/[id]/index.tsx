@@ -112,7 +112,7 @@ export default function ProjectDetailScreen() {
     ...presets.map((p) => ({
       key: p.id,
       label: p.name,
-      caption: `${p.parts.length} part · ${Math.round(p.parts.reduce((s, x) => s + x.minutes, 0))} dk`,
+      caption: `Odak ${p.focusMinutes} · Tekrar ${p.reviewMinutes} · Nefes ${p.breatheMinutes} dk`,
     })),
   ];
 

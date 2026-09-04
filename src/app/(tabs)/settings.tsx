@@ -20,8 +20,8 @@ import {
 
 import {
   DISPLAY_SIZE_LABELS,
-  MIN_BREAK_LIMITS,
-  presetTotalMinutes,
+  MIN_BREATHE_LIMITS,
+  roundMinutes,
   WORK_END_REMINDER_OPTIONS,
   type TimerDisplaySize,
 } from '@/features/timer/settings';
@@ -36,7 +36,7 @@ export default function SettingsScreen() {
   const [autoAdvance, setAutoAdvance] = useState(settings.autoAdvance);
   const [workEndReminder, setWorkEndReminder] = useState(settings.workEndReminderMinutes);
   const [plannedStart, setPlannedStart] = useState(settings.plannedStartTime ?? '');
-  const [minBreak, setMinBreak] = useState(String(settings.minBreakMinutes));
+  const [minBreathe, setMinBreathe] = useState(String(settings.minBreatheMinutes));
   const [display, setDisplay] = useState(settings.display);
   const [overlayGranted, setOverlayGranted] = useState(hasOverlayPermission);
   const [activePresetId, setActivePresetId] = useState(settings.activePresetId);
@@ -52,7 +52,7 @@ export default function SettingsScreen() {
     setAutoAdvance(settings.autoAdvance);
     setWorkEndReminder(settings.workEndReminderMinutes);
     setPlannedStart(settings.plannedStartTime ?? '');
-    setMinBreak(String(settings.minBreakMinutes));
+    setMinBreathe(String(settings.minBreatheMinutes));
     setDisplay(settings.display);
   }, [settings]);
 
@@ -77,12 +77,12 @@ export default function SettingsScreen() {
       // Geçersiz saat/dk girişlerini sanitizeSettings eler (saat → null,
       // dk → 1-30 aralığına kırpma); kaydedilen değer forma geri yansır.
       await save({
-        version: 3,
+        version: 4,
         activePresetId,
         autoAdvance,
         workEndReminderMinutes: workEndReminder,
         plannedStartTime: plannedStart.trim() || null,
-        minBreakMinutes: Number(minBreak.replace(',', '.')),
+        minBreatheMinutes: Number(minBreathe.replace(',', '.')),
         display,
       });
       setSavedFlash(true);
@@ -114,8 +114,6 @@ export default function SettingsScreen() {
           <View style={styles.card}>
             {presets.map((preset, i) => {
               const isActive = activePresetId === preset.id;
-              const workCount = preset.parts.filter((p) => p.type === 'work').length;
-              const breakCount = preset.parts.length - workCount;
               return (
                 <Pressable
                   key={preset.id}
@@ -139,8 +137,8 @@ export default function SettingsScreen() {
                       {isActive && <Text style={styles.presetDefault}>  · varsayılan</Text>}
                     </Text>
                     <Text style={styles.presetMeta} maxFontSizeMultiplier={1.2}>
-                      {preset.parts.length} part · {presetTotalMinutes(preset)} dk
-                      {breakCount > 0 ? ` · ${workCount} çalışma, ${breakCount} mola` : ''}
+                      Odak {preset.focusMinutes} · Tekrar {preset.reviewMinutes} · Nefes{' '}
+                      {preset.breatheMinutes} dk · tur ≈ {roundMinutes(preset)} dk
                     </Text>
                   </View>
                   <Feather name="chevron-right" size={18} color={L.tertiary} />
@@ -158,21 +156,21 @@ export default function SettingsScreen() {
             </Text>
           </Pressable>
 
-          {/* Part geçişi */}
+          {/* Tur geçişi */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-            PART GEÇİŞİ
+            TUR GEÇİŞİ
           </Text>
           <View style={styles.card}>
             {[
               {
                 value: false,
                 title: "Devam'a basınca",
-                desc: 'Part bitince bekler; sonraki part Devam ile başlar.',
+                desc: 'Nefes Al süresi dolunca bekler; sonraki tur Devam ile başlar.',
               },
               {
                 value: true,
                 title: 'Otomatik',
-                desc: 'Alarm süresi dolunca sonraki part kendiliğinden başlar.',
+                desc: 'Nefes Al süresi dolunca sonraki tur kendiliğinden başlar.',
               },
             ].map((opt, i) => (
               <Pressable
@@ -251,9 +249,9 @@ export default function SettingsScreen() {
             PLANLI BAŞLANGIÇ
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-            Günün ilk seansı bu saatten geç başlarsa gecikme, sonraki molalardan düşülür
-            (her mola en fazla minimuma iner, artan sonraki molaya taşar). Çalışmada
-            duraklatılan süre de aynı şekilde düşülür. Saati boş bırak = kapalı.
+            Günün ilk seansı bu saatten geç başlarsa gecikme, sonraki Nefes Al sürelerinden
+            düşülür (her nefes en fazla minimuma iner, artan sonraki nefese taşar). Odak veya
+            Tekrar sırasında duraklatılan süre de aynı şekilde düşülür. Saati boş bırak = kapalı.
           </Text>
           <View style={styles.inlineRow}>
             <View style={styles.inlineField}>
@@ -273,26 +271,26 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.inlineField}>
               <Text style={styles.fieldLabel} maxFontSizeMultiplier={1.3}>
-                Minimum mola (dk)
+                Minimum nefes (dk)
               </Text>
               <TextInput
                 style={styles.input}
-                value={minBreak}
-                onChangeText={setMinBreak}
+                value={minBreathe}
+                onChangeText={setMinBreathe}
                 keyboardType="number-pad"
                 maxLength={2}
-                placeholder={String(MIN_BREAK_LIMITS.min)}
+                placeholder={String(MIN_BREATHE_LIMITS.min)}
                 placeholderTextColor={L.tertiary}
               />
             </View>
           </View>
 
-          {/* Çalışma bitiş hatırlatıcısı */}
+          {/* Faz bitiş hatırlatıcısı */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-            ÇALIŞMA BİTİŞ HATIRLATICISI
+            FAZ BİTİŞ HATIRLATICISI
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-            {"Çalışma partı bitmeden seçilen süre kadar önce 'bitmeye az kaldı' bildirimi gönderilir. Molalara uygulanmaz."}
+            {"Odak veya Tekrar bitmeden seçilen süre kadar önce 'bitmeye az kaldı' bildirimi gönderilir. Nefes Al'a uygulanmaz."}
           </Text>
           <View style={styles.segment}>
             {WORK_END_REMINDER_OPTIONS.map((min, i) => (

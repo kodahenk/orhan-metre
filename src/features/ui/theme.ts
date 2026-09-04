@@ -41,9 +41,10 @@ export const D = {
   dotOff: '#1C1E22',
   dotPast: '#4A4F58',
   amber: '#B8860B',
-  // Mola rakamları + alarm rozeti: ince mono fontta okunaklı parlak sarı
-  // (amber siyah üzerinde dev rakamlar için sönük kalıyor).
+  // Faz renkleri (tam ekran sayaç): Odak gri (text), Tekrar mavi,
+  // Nefes Al sarı — ince mono fontta siyah üzerinde okunaklı tonlar.
   yellow: '#FBBF24',
+  sky: '#7DD3FC',
   clock: '#B6BBC2',
 } as const;
 

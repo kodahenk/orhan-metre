@@ -12,7 +12,7 @@ import {
   DEFAULT_PRESET,
   DEFAULT_SETTINGS,
   loadTimerConfig,
-  newPartId,
+  newPresetId,
   sanitizePreset,
   sanitizeSettings,
   savePresets,
@@ -87,15 +87,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addPreset = useCallback(() => {
-    const id = newPartId();
+    const id = newPresetId();
     const source =
       presetsRef.current.find((p) => p.id === settingsRef.current.activePresetId) ??
       presetsRef.current[0];
-    const copy: TimerPreset = {
-      id,
-      name: `${source.name} kopyası`,
-      parts: source.parts.map((part) => ({ ...part, id: newPartId() })),
-    };
+    const copy: TimerPreset = { ...source, id, name: `${source.name} kopyası` };
     const next = [...presetsRef.current, copy];
     presetsRef.current = next;
     setPresets(next);

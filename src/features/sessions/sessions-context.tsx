@@ -21,11 +21,12 @@ export type WorkSession = {
   presetId: string | null;
   startedAt: number; // epoch ms
   endedAt: number; // epoch ms
-  /** Yalnızca 'work' türü partlarda fiilen geçen süre. */
+  /** Odak + Tekrar fazlarında fiilen geçen, SAYILAN süre. */
   workSeconds: number;
+  /** Nefes Al sürelerinin toplamı. */
   breakSeconds: number;
-  completedWorkParts: number;
-  plannedWorkParts: number;
+  /** Tekrar fazına ulaşmış (çalışılmış sayılan) tur sayısı. */
+  completedRounds: number;
   status: 'completed' | 'abandoned';
 };
 
@@ -44,8 +45,12 @@ function sanitize(raw: unknown): WorkSession[] {
       endedAt: Number(s.endedAt) || 0,
       workSeconds: Math.max(0, Number(s.workSeconds) || 0),
       breakSeconds: Math.max(0, Number(s.breakSeconds) || 0),
-      completedWorkParts: Math.max(0, Number(s.completedWorkParts) || 0),
-      plannedWorkParts: Math.max(0, Number(s.plannedWorkParts) || 0),
+      // Eski kayıtlarda tur kavramı yoktu: tamamlanan çalışma partı sayısı
+      // en yakın karşılık olarak devralınır.
+      completedRounds: Math.max(
+        0,
+        Number(s.completedRounds ?? s.completedWorkParts) || 0,
+      ),
       status: (s.status === 'abandoned' ? 'abandoned' : 'completed') as WorkSession['status'],
     }))
     .filter((s) => s.startedAt > 0);

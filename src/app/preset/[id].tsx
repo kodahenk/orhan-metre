@@ -14,27 +14,52 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  newPartId,
-  PART_LIMITS,
-  PART_TYPE_LABELS,
-  sanitizePreset,
-  type PartType,
-} from '@/features/timer/settings';
+import { PRESET_LIMITS, roundMinutes, sanitizePreset } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { F, L, R } from '@/features/ui/theme';
 
 // Sayı alanları yazım sırasında serbest metin tutulur; kaydederken ayrıştırılıp
 // sınırlara oturtulur (sanitizePreset).
-type DraftPart = {
-  id: string;
-  label: string;
-  minutes: string;
-  alarmSeconds: string;
-  type: PartType;
-};
-
 const parseNum = (s: string) => Number(s.replace(',', '.'));
+
+type FieldKey = 'focus' | 'review' | 'breathe' | 'notify';
+
+const FIELDS: {
+  key: FieldKey;
+  label: string;
+  unit: string;
+  hint: string;
+  icon: keyof typeof Feather.glyphMap;
+}[] = [
+  {
+    key: 'focus',
+    label: 'Odak',
+    unit: 'dk',
+    hint: 'Turun ilk fazı. Bu fazda bitirilen tur sayılmaz.',
+    icon: 'zap',
+  },
+  {
+    key: 'review',
+    label: 'Tekrar',
+    unit: 'dk',
+    hint: 'Bu faza ulaşan tur çalışılmış sayılır ve kaydedilir.',
+    icon: 'repeat',
+  },
+  {
+    key: 'breathe',
+    label: 'Nefes Al',
+    unit: 'dk',
+    hint: 'Tur arası bekleme; süresi dolunca sonraki tura geçilir.',
+    icon: 'wind',
+  },
+  {
+    key: 'notify',
+    label: 'Bildirim aralığı',
+    unit: 'sn',
+    hint: 'Nefes Al boyunca kaç saniyede bir dürtüleceğin.',
+    icon: 'bell',
+  },
+];
 
 export default function PresetEditorScreen() {
   const router = useRouter();
@@ -43,15 +68,12 @@ export default function PresetEditorScreen() {
   const preset = presets.find((p) => p.id === id);
 
   const [name, setName] = useState(preset?.name ?? '');
-  const [parts, setParts] = useState<DraftPart[]>(() =>
-    (preset?.parts ?? []).map((p) => ({
-      id: p.id,
-      label: p.label,
-      minutes: String(p.minutes),
-      alarmSeconds: String(p.alarmSeconds),
-      type: p.type,
-    })),
-  );
+  const [values, setValues] = useState<Record<FieldKey, string>>(() => ({
+    focus: String(preset?.focusMinutes ?? ''),
+    review: String(preset?.reviewMinutes ?? ''),
+    breathe: String(preset?.breatheMinutes ?? ''),
+    notify: String(preset?.notifySeconds ?? ''),
+  }));
 
   if (!preset) {
     return (
@@ -63,38 +85,17 @@ export default function PresetEditorScreen() {
     );
   }
 
-  const updatePart = (partId: string, patch: Partial<DraftPart>) =>
-    setParts((prev) => prev.map((p) => (p.id === partId ? { ...p, ...patch } : p)));
-
-  const removePart = (partId: string) =>
-    setParts((prev) => (prev.length > 1 ? prev.filter((p) => p.id !== partId) : prev));
-
-  const addPart = () =>
-    setParts((prev) => [
-      ...prev,
-      {
-        id: newPartId(),
-        label: prev.some((p) => p.type === 'break') ? `Part ${prev.length + 1}` : 'Mola',
-        minutes: '5',
-        alarmSeconds: '30',
-        type: prev.some((p) => p.type === 'break') ? 'work' : 'break',
-      },
-    ]);
+  const draft = sanitizePreset({
+    id: preset.id,
+    name,
+    focusMinutes: parseNum(values.focus),
+    reviewMinutes: parseNum(values.review),
+    breatheMinutes: parseNum(values.breathe),
+    notifySeconds: parseNum(values.notify),
+  });
 
   const onSave = async () => {
-    await savePreset(
-      sanitizePreset({
-        id: preset.id,
-        name,
-        parts: parts.map((p) => ({
-          id: p.id,
-          label: p.label,
-          minutes: parseNum(p.minutes),
-          alarmSeconds: parseNum(p.alarmSeconds),
-          type: p.type,
-        })),
-      }),
-    );
+    await savePreset(draft);
     router.back();
   };
 
@@ -133,11 +134,7 @@ export default function PresetEditorScreen() {
             disabled={presets.length <= 1}
             style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
           >
-            <Feather
-              name="trash-2"
-              size={20}
-              color={presets.length <= 1 ? L.hairline : L.ink2}
-            />
+            <Feather name="trash-2" size={20} color={presets.length <= 1 ? L.hairline : L.ink2} />
           </Pressable>
         </View>
 
@@ -157,102 +154,55 @@ export default function PresetEditorScreen() {
               style={styles.input}
               value={name}
               onChangeText={setName}
-              placeholder="ör. Klasik Pomodoro"
+              placeholder="ör. Klasik Tur"
               placeholderTextColor={L.tertiary}
               maxLength={30}
             />
 
             <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.3}>
-              PARTLAR
+              TUR SÜRELERİ
             </Text>
             <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-              Tür simgesine dokun: Çalışma ↔ Mola (mola raporlarda sayılmaz). Süre dk (
-              {PART_LIMITS.minutes.min}–{PART_LIMITS.minutes.max}), alarm sn (
-              {PART_LIMITS.alarmSeconds.min}–{PART_LIMITS.alarmSeconds.max}).
+              Her tur Odak → Tekrar → Nefes Al sırasıyla işler ve sen bitirene kadar döner.
             </Text>
 
-            {/* Kompakt tek satır: tür · ad · süre · alarm · sil */}
-            {parts.map((part) => (
-              <View key={part.id} style={styles.partCard}>
-                <Pressable
-                  onPress={() =>
-                    updatePart(part.id, { type: part.type === 'work' ? 'break' : 'work' })
-                  }
-                  hitSlop={4}
-                  style={({ pressed }) => [
-                    styles.typeToggle,
-                    part.type === 'break' && styles.typeToggleBreak,
-                    pressed && styles.pressedOpacity,
-                  ]}
-                >
-                  <Feather
-                    name={part.type === 'work' ? 'zap' : 'coffee'}
-                    size={14}
-                    color={part.type === 'work' ? L.accent : L.ink2}
-                  />
-                  <Text style={styles.typeToggleText} maxFontSizeMultiplier={1.1}>
-                    {PART_TYPE_LABELS[part.type]}
-                  </Text>
-                </Pressable>
-
-                <TextInput
-                  style={[styles.input, styles.flex, styles.nameInput]}
-                  value={part.label}
-                  onChangeText={(t) => updatePart(part.id, { label: t })}
-                  placeholder="Part adı"
-                  placeholderTextColor={L.tertiary}
-                  maxLength={24}
-                />
-
-                <View style={styles.unitBox}>
-                  <TextInput
-                    style={styles.unitInput}
-                    value={part.minutes}
-                    onChangeText={(t) => updatePart(part.id, { minutes: t })}
-                    keyboardType="decimal-pad"
-                    maxLength={5}
-                  />
-                  <Text style={styles.unitSuffix} maxFontSizeMultiplier={1.1}>
-                    dk
-                  </Text>
+            <View style={styles.card}>
+              {FIELDS.map((field, i) => (
+                <View key={field.key} style={[styles.row, i > 0 && styles.rowSeparator]}>
+                  <Feather name={field.icon} size={16} color={L.tertiary} />
+                  <View style={styles.flex}>
+                    <Text style={styles.rowLabel} maxFontSizeMultiplier={1.2}>
+                      {field.label}
+                    </Text>
+                    <Text style={styles.rowHint} maxFontSizeMultiplier={1.2}>
+                      {field.hint}
+                    </Text>
+                  </View>
+                  <View style={styles.unitBox}>
+                    <TextInput
+                      style={styles.unitInput}
+                      value={values[field.key]}
+                      onChangeText={(t) => setValues((v) => ({ ...v, [field.key]: t }))}
+                      keyboardType={field.unit === 'sn' ? 'number-pad' : 'decimal-pad'}
+                      maxLength={5}
+                    />
+                    <Text style={styles.unitSuffix} maxFontSizeMultiplier={1.1}>
+                      {field.unit}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.unitBox}>
-                  <TextInput
-                    style={styles.unitInput}
-                    value={part.alarmSeconds}
-                    onChangeText={(t) => updatePart(part.id, { alarmSeconds: t })}
-                    keyboardType="number-pad"
-                    maxLength={3}
-                  />
-                  <Text style={styles.unitSuffix} maxFontSizeMultiplier={1.1}>
-                    sn
-                  </Text>
-                </View>
+              ))}
+            </View>
 
-                <Pressable
-                  onPress={() => removePart(part.id)}
-                  hitSlop={10}
-                  disabled={parts.length <= 1}
-                  style={({ pressed }) => pressed && styles.pressedOpacity}
-                >
-                  <Feather
-                    name="trash-2"
-                    size={17}
-                    color={parts.length <= 1 ? L.hairline : L.ink2}
-                  />
-                </Pressable>
-              </View>
-            ))}
-
-            <Pressable
-              style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
-              onPress={addPart}
-            >
-              <Feather name="plus" size={18} color={L.ink2} />
-              <Text style={styles.addButtonText} maxFontSizeMultiplier={1.3}>
-                Part Ekle
-              </Text>
-            </Pressable>
+            <Text style={styles.summary} maxFontSizeMultiplier={1.2}>
+              Bir tur ≈ {roundMinutes(draft)} dk · Odak {draft.focusMinutes} + Tekrar{' '}
+              {draft.reviewMinutes} + Nefes {draft.breatheMinutes} dk
+            </Text>
+            <Text style={styles.limits} maxFontSizeMultiplier={1.2}>
+              Süreler {PRESET_LIMITS.focusMinutes.min}–{PRESET_LIMITS.focusMinutes.max} dk,
+              bildirim aralığı {PRESET_LIMITS.notifySeconds.min}–{PRESET_LIMITS.notifySeconds.max}{' '}
+              sn arasına oturtulur.
+            </Text>
 
             <Pressable
               style={({ pressed }) => [styles.saveButton, pressed && styles.saveButtonPressed]}
@@ -339,38 +289,35 @@ const styles = StyleSheet.create({
     borderRadius: R.md,
     paddingHorizontal: 12,
   },
-  partCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  card: {
     backgroundColor: L.surface,
     borderWidth: 1,
     borderColor: L.hairline,
     borderRadius: R.lg,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    overflow: 'hidden',
   },
-  typeToggle: {
-    width: 52,
-    height: 44,
+  row: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-    borderWidth: 1,
-    borderColor: L.border,
-    borderRadius: R.md,
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  typeToggleBreak: {
-    backgroundColor: L.selected,
+  rowSeparator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: L.hairline,
   },
-  typeToggleText: {
-    color: L.ink2,
+  rowLabel: {
+    color: L.ink,
     fontFamily: F.uiMed,
-    fontSize: 9,
+    fontSize: 14,
   },
-  nameInput: {
-    minWidth: 60,
-    paddingHorizontal: 10,
+  rowHint: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 2,
   },
   unitBox: {
     flexDirection: 'row',
@@ -379,11 +326,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: L.border,
     borderRadius: R.md,
-    paddingHorizontal: 6,
-    gap: 2,
+    paddingHorizontal: 8,
+    gap: 3,
   },
   unitInput: {
-    width: 34,
+    width: 38,
     color: L.ink,
     fontFamily: F.ui,
     fontSize: 15,
@@ -395,22 +342,17 @@ const styles = StyleSheet.create({
     fontFamily: F.ui,
     fontSize: 12,
   },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 44,
-    backgroundColor: L.surface,
-    borderWidth: 1,
-    borderColor: L.border,
-    borderStyle: 'dashed',
-    borderRadius: R.lg,
-  },
-  addButtonText: {
+  summary: {
     color: L.ink2,
     fontFamily: F.uiMed,
-    fontSize: 13,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  limits: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 11,
+    lineHeight: 16,
   },
   saveButton: {
     flexDirection: 'row',
@@ -439,8 +381,5 @@ const styles = StyleSheet.create({
   },
   pressed: {
     backgroundColor: L.pressed,
-  },
-  pressedOpacity: {
-    opacity: 0.6,
   },
 });
