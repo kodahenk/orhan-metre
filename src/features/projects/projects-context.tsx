@@ -9,12 +9,12 @@ import {
   type ReactNode,
 } from 'react';
 
+import { migrateTaskChecklists, type Task, type ChecklistItem } from './task-model';
+export { taskPathLabel, type Task, type ChecklistItem } from './task-model';
+
 import { PROJECT_COLORS } from '@/features/ui/theme';
 
-// --- Model (v2) ---
-// Projeler komşuluk listesiyle hiyerarşiktir (derinlik 2: üst proje + alt proje).
-// Görevler ayrı, normalize bir koleksiyondur ve parentTaskId ile SINIRSIZ
-// derinlikte iç içe geçebilir; her ekran en fazla 2 seviye gösterir.
+// Projects contain independent tasks; each task owns a flat checklist.
 
 export type GoalPeriod = 'weekly' | 'monthly' | 'yearly' | 'total';
 
@@ -46,38 +46,13 @@ export type Project = {
   goal: Goal | null;
 };
 
-export type Task = {
-  id: string;
-  projectId: string;
-  /** null = projenin üst düzey görevi. */
-  parentTaskId: string | null;
-  title: string;
-  /** Görev açıklaması/notu — serbest metin, '' = yok. */
-  note: string;
-  done: boolean;
-  /** 'YYYY-MM-DD' — takvimde görünür; null = tarihsiz. */
-  dueDate: string | null;
-  orderIndex: number;
-};
-
 export function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * Oturum kayıtlarındaki görev göstergesi: "Üst görev › Alt görev" kırıntısı.
- * taskId null → null (görevsiz); görev silinmişse "Silinmiş görev".
- */
-export function taskPathLabel(tasks: Task[], taskId: string | null): string | null {
-  if (!taskId) return null;
-  const task = tasks.find((t) => t.id === taskId);
-  if (!task) return 'Silinmiş görev';
-  const parent = task.parentTaskId ? tasks.find((t) => t.id === task.parentTaskId) : null;
-  return parent ? `${parent.title} › ${task.title}` : task.title;
-}
-
 const PROJECTS_KEY = 'projects-v2';
-const TASKS_KEY = 'tasks-v1';
+const TASKS_KEY = 'tasks-v2-checklists';
+const LEGACY_TASKS_KEY = 'tasks-v1';
 const LEGACY_PROJECTS_KEY = 'projects-v1';
 
 const DEFAULT_PROJECTS: Project[] = [
@@ -134,33 +109,14 @@ function sanitizeProjects(raw: unknown): Project[] {
 }
 
 function sanitizeTasks(raw: unknown, projects: Project[]): Task[] {
-  if (!Array.isArray(raw)) return [];
-  const projectIds = new Set(projects.map((p) => p.id));
-  const list = raw
-    .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
-    .map((t, i) => ({
-      id: (t.id as string) || newId(),
-      projectId: String(t.projectId ?? ''),
-      parentTaskId: typeof t.parentTaskId === 'string' ? t.parentTaskId : null,
-      title: String(t.title ?? '').trim() || 'Görev',
-      note: typeof t.note === 'string' ? t.note : '',
-      done: !!t.done,
-      dueDate: typeof t.dueDate === 'string' ? t.dueDate : null,
-      orderIndex: Number.isFinite(t.orderIndex) ? (t.orderIndex as number) : i,
-    }))
-    .filter((t) => projectIds.has(t.projectId));
-  const taskIds = new Set(list.map((t) => t.id));
-  for (const t of list) {
-    if (t.parentTaskId && !taskIds.has(t.parentTaskId)) t.parentTaskId = null;
-  }
-  return list;
+  return migrateTaskChecklists(raw, new Set(projects.map((p) => p.id)));
 }
 
 /** Eski iç içe modelden (projects-v1) normalize modele migrasyon. */
 function migrateLegacy(raw: unknown): { projects: Project[]; tasks: Task[] } {
   const oldProjects = Array.isArray(raw) ? raw : [];
   const projects: Project[] = [];
-  const tasks: Task[] = [];
+  const tasks: Record<string, unknown>[] = [];
   oldProjects.forEach((p: Record<string, unknown>, i: number) => {
     if (!p || typeof p !== 'object') return;
     const projectId = (p.id as string) || newId();
@@ -202,7 +158,7 @@ function migrateLegacy(raw: unknown): { projects: Project[]; tasks: Task[] } {
       });
     });
   });
-  return { projects: projects.length > 0 ? projects : DEFAULT_PROJECTS, tasks };
+  return { projects: projects.length > 0 ? projects : DEFAULT_PROJECTS, tasks: sanitizeTasks(tasks, projects) };
 }
 
 // --- Context ---
@@ -221,19 +177,15 @@ type ProjectsContextValue = {
   setProjectColor: (id: string, color: string) => void;
   /** Projeyi kardeşleri arasında bir sıra yukarı/aşağı taşır. */
   moveProject: (id: string, direction: -1 | 1) => void;
-  /** Görevi başka projeye (ve istenirse başka üst göreve) taşır; alt ağacı da taşınır. */
-  moveTask: (taskId: string, projectId: string, parentTaskId?: string | null) => void;
-  /** Görevi kardeşleri arasında bir sıra yukarı/aşağı taşır. */
+  moveTask: (taskId: string, projectId: string) => void;
   moveTaskOrder: (taskId: string, direction: -1 | 1) => void;
-  addTask: (
-    projectId: string,
-    parentTaskId: string | null,
-    title: string,
-    dueDate?: string | null,
-  ) => void;
-  updateTask: (taskId: string, patch: Partial<Omit<Task, 'id' | 'projectId'>>) => void;
-  /** Görevi tüm alt ağacıyla siler. */
+  addTask: (projectId: string, title: string, dueDate?: string | null) => void;
+  updateTask: (taskId: string, patch: Partial<Pick<Task, 'title' | 'note' | 'done' | 'dueDate'>>) => void;
   deleteTask: (taskId: string) => void;
+  addChecklistItem: (taskId: string, title: string) => void;
+  updateChecklistItem: (taskId: string, itemId: string, patch: Partial<Pick<ChecklistItem, 'title' | 'done' | 'note'>>) => void;
+  deleteChecklistItem: (taskId: string, itemId: string) => void;
+  moveChecklistItem: (taskId: string, itemId: string, direction: -1 | 1) => void;
 };
 
 const ProjectsContext = createContext<ProjectsContextValue | null>(null);
@@ -252,16 +204,19 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const [rawProjects, rawTasks, rawLegacy] = await Promise.all([
+        const [rawProjects, rawTasks, rawLegacy, rawLegacyTasks] = await Promise.all([
           Storage.getItem(PROJECTS_KEY),
           Storage.getItem(TASKS_KEY),
           Storage.getItem(LEGACY_PROJECTS_KEY),
+          Storage.getItem(LEGACY_TASKS_KEY),
         ]);
         if (cancelled) return;
         if (rawProjects) {
           const p = sanitizeProjects(JSON.parse(rawProjects));
           setProjects(p);
-          setTasks(sanitizeTasks(rawTasks ? JSON.parse(rawTasks) : [], p));
+          const migrated = sanitizeTasks(JSON.parse(rawTasks ?? rawLegacyTasks ?? '[]'), p);
+          setTasks(migrated);
+          if (!rawTasks && rawLegacyTasks) await Storage.setItem(TASKS_KEY, JSON.stringify(migrated));
         } else if (rawLegacy) {
           // v1 → v2 migrasyonu; eski anahtar yedek olarak yerinde bırakılır.
           const { projects: p, tasks: t } = migrateLegacy(JSON.parse(rawLegacy));
@@ -401,26 +356,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       [mutateProjects],
     ),
     moveTask: useCallback(
-      (taskId, projectId, parentTaskId) =>
-        mutateTasks((prev) => {
-          // Alt ağaç da taşınır, yoksa görevler farklı projelere dağılırdı.
-          const subtree = new Set([taskId]);
-          let grew = true;
-          while (grew) {
-            grew = false;
-            for (const t of prev) {
-              if (t.parentTaskId && subtree.has(t.parentTaskId) && !subtree.has(t.id)) {
-                subtree.add(t.id);
-                grew = true;
-              }
-            }
-          }
-          return prev.map((t) => {
-            if (!subtree.has(t.id)) return t;
-            if (t.id !== taskId) return { ...t, projectId };
-            return { ...t, projectId, parentTaskId: parentTaskId ?? null };
-          });
-        }),
+      (taskId, projectId) => mutateTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, projectId } : t)),
       [mutateTasks],
     ),
     moveTaskOrder: useCallback(
@@ -429,7 +365,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
           const target = prev.find((t) => t.id === taskId);
           if (!target) return prev;
           const siblings = prev
-            .filter((t) => t.projectId === target.projectId && t.parentTaskId === target.parentTaskId)
+            .filter((t) => t.projectId === target.projectId)
             .sort((a, b) => a.orderIndex - b.orderIndex);
           const i = siblings.findIndex((t) => t.id === taskId);
           const j = i + direction;
@@ -454,13 +390,14 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       [mutateProjects],
     ),
     addTask: useCallback(
-      (projectId, parentTaskId, title, dueDate = null) =>
+      (projectId, title, dueDate = null) =>
         mutateTasks((prev) => [
           ...prev,
           {
             id: newId(),
             projectId,
-            parentTaskId,
+            checklist: [],
+            legacyTaskIds: [],
             title: title.trim() || 'Görev',
             note: '',
             done: false,
@@ -476,24 +413,33 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       [mutateTasks],
     ),
     deleteTask: useCallback(
-      (taskId) =>
-        mutateTasks((prev) => {
-          // Alt ağacı topla (derinlik sınırsız olabilir).
-          const doomed = new Set([taskId]);
-          let grew = true;
-          while (grew) {
-            grew = false;
-            for (const t of prev) {
-              if (t.parentTaskId && doomed.has(t.parentTaskId) && !doomed.has(t.id)) {
-                doomed.add(t.id);
-                grew = true;
-              }
-            }
-          }
-          return prev.filter((t) => !doomed.has(t.id));
-        }),
+      (taskId) => mutateTasks((prev) => prev.filter((t) => t.id !== taskId)),
       [mutateTasks],
     ),
+    addChecklistItem: useCallback((taskId, title) => {
+      const clean = title.trim();
+      if (!clean) return;
+      mutateTasks((prev) => prev.map((task) => task.id === taskId ? { ...task, checklist: [...task.checklist, {
+        id: newId(), title: clean, done: false, note: '', dueDate: null, orderIndex: task.checklist.reduce((max, i) => Math.max(max, i.orderIndex + 1), 0),
+      }] } : task));
+    }, [mutateTasks]),
+    updateChecklistItem: useCallback((taskId, itemId, patch) => {
+      mutateTasks((prev) => prev.map((task) => task.id === taskId ? { ...task, checklist: task.checklist.map((item) => item.id === itemId ? { ...item, ...patch, title: patch.title?.trim() || item.title } : item) } : task));
+    }, [mutateTasks]),
+    deleteChecklistItem: useCallback((taskId, itemId) => {
+      mutateTasks((prev) => prev.map((task) => task.id === taskId ? { ...task, checklist: task.checklist.filter((item) => item.id !== itemId) } : task));
+    }, [mutateTasks]),
+    moveChecklistItem: useCallback((taskId, itemId, direction) => {
+      mutateTasks((prev) => prev.map((task) => {
+        if (task.id !== taskId) return task;
+        const items = [...task.checklist].sort((a, b) => a.orderIndex - b.orderIndex);
+        const i = items.findIndex((item) => item.id === itemId);
+        const j = i + direction;
+        if (i < 0 || j < 0 || j >= items.length) return task;
+        [items[i], items[j]] = [items[j], items[i]];
+        return { ...task, checklist: items.map((item, orderIndex) => ({ ...item, orderIndex })) };
+      }));
+    }, [mutateTasks]),
   };
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;

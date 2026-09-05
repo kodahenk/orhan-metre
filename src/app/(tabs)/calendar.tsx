@@ -1,11 +1,11 @@
+import { DateSheet } from '@/features/ui/date-sheet';
+import { Pagination, TaskFilters, useTaskCollection } from '@/features/ui/collection';
+import { FormScrollView } from '@/features/ui/form-scroll-view';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -75,7 +75,9 @@ export default function CalendarScreen() {
     return map;
   }, [projects, tasks]);
 
-  const dayTasks = tasksByDate.get(selectedKey) ?? [];
+  const dayTasks = useMemo(() => tasksByDate.get(selectedKey) ?? [], [tasksByDate, selectedKey]);
+  const dayItems = useMemo(() => dayTasks.map(({ task, project }) => ({ ...task, project })), [dayTasks]);
+  const dayCollection = useTaskCollection(dayItems, selectedKey);
 
   const shift = (n: number) => {
     if (mode === 'ay') {
@@ -105,19 +107,6 @@ export default function CalendarScreen() {
     [orderedProjects],
   );
 
-  // Önümüzdeki 3 hafta + "tarihsiz": görev başka güne taşınabilsin.
-  const dateOptions: PickerOption[] = useMemo(() => {
-    const options: PickerOption[] = [{ key: '__none__', label: 'Tarihsiz' }];
-    for (let i = 0; i < 21; i++) {
-      const d = addDays(new Date(), i);
-      options.push({
-        key: dateKey(d),
-        label: i === 0 ? 'Bugün' : i === 1 ? 'Yarın' : formatDate(d),
-      });
-    }
-    return options;
-  }, []);
-
   const submitTask = () => {
     const title = newTask.trim();
     if (!title || !targetProject) return;
@@ -146,13 +135,10 @@ export default function CalendarScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Takvim" subtitle="Gününü planla, odağına yer aç" right={<HeaderIconButton icon="corner-down-left" label="Bugüne dön" onPress={() => setSelectedKey(dateKey(new Date()))} />} />
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
+        <View style={styles.flex}>
+          <FormScrollView
             style={styles.flex}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
@@ -226,7 +212,7 @@ export default function CalendarScreen() {
                           isToday && !isSelected && styles.dayCellToday,
                           isSelected && styles.dayCellSelected,
                         ]}
-                        onPress={() => setSelectedKey(key)}
+                        accessibilityRole="button" accessibilityLabel={formatDate(d)} accessibilityState={{ selected: isSelected }} onPress={() => setSelectedKey(key)}
                       >
                         <Text
                           style={[
@@ -273,7 +259,7 @@ export default function CalendarScreen() {
                         isToday && !isSelected && styles.weekDayToday,
                         isSelected && styles.weekDaySelected,
                       ]}
-                      onPress={() => setSelectedKey(key)}
+                      accessibilityRole="button" accessibilityLabel={formatDate(d)} accessibilityState={{ selected: isSelected }} onPress={() => setSelectedKey(key)}
                     >
                       <Text
                         style={[styles.weekDayName, isSelected && styles.weekDayNameSelected]}
@@ -316,9 +302,11 @@ export default function CalendarScreen() {
               <EmptyState icon="calendar" title="Bugünün planı sana ait" description={targetProject ? 'Bu tarih için henüz görev yok. Aşağıdan ilk görevini ekleyebilirsin.' : 'Takvimine görev eklemek için önce bir proje oluştur.'} action={!targetProject ? <Button label="Proje oluştur" icon="plus" variant="primary" onPress={() => router.push('/projects')} /> : undefined} />
             )}
 
+            {dayTasks.length > 0 && <TaskFilters collection={dayCollection} />}
+            {dayTasks.length > 0 && dayCollection.total === 0 && <Text style={styles.emptyText}>Bu filtrelerle eşleşen görev yok.</Text>}
             {dayTasks.length > 0 && (
               <View style={styles.card}>
-                {dayTasks.map(({ project, task }, i) => (
+                {dayCollection.items.map(({ project, ...task }, i) => (
                   <View key={task.id} style={[styles.taskRow, i > 0 && styles.rowSeparator]}>
                     <Checkbox
                       checked={task.done}
@@ -333,6 +321,7 @@ export default function CalendarScreen() {
                       delayLongPress={400}
                     >
                       <Text
+                        numberOfLines={2}
                         style={[styles.taskTitle, task.done && styles.taskTitleDone]}
                         maxFontSizeMultiplier={1.3}
                       >
@@ -345,12 +334,13 @@ export default function CalendarScreen() {
                         </Text>
                       </View>
                     </Pressable>
-                    <Feather name="chevron-right" size={16} color={L.tertiary} />
+                    <HeaderIconButton icon="calendar" label={`${task.title} tarihini değiştir`} onPress={() => setDateTaskId(task.id)} />
                   </View>
                 ))}
               </View>
             )}
 
+            <Pagination total={dayCollection.total} page={dayCollection.page} onChange={dayCollection.setPage} />
             {/* Seçili güne hızlı görev ekleme — hedef proje seçilebilir */}
             {targetProject && (
               <Pressable
@@ -387,20 +377,13 @@ export default function CalendarScreen() {
                 <Feather name="plus" size={20} color="#FFFFFF" />
               </Pressable>
             </View>}
-          </ScrollView>
-        </KeyboardAvoidingView>
+          </FormScrollView>
+        </View>
       </SafeAreaView>
 
-      <PickerSheet
-        visible={dateTaskId != null}
-        title="Görevi başka güne taşı"
-        options={dateOptions}
-        selectedKey={tasks.find((t) => t.id === dateTaskId)?.dueDate ?? '__none__'}
-        onSelect={(key) => {
-          if (dateTaskId) updateTask(dateTaskId, { dueDate: key === '__none__' ? null : key });
-        }}
-        onClose={() => setDateTaskId(null)}
-      />
+      <DateSheet visible={dateTaskId != null} value={tasks.find((t) => t.id === dateTaskId)?.dueDate ?? null}
+        onSelect={(value) => { if (dateTaskId) updateTask(dateTaskId, { dueDate: value }); }} onClose={() => setDateTaskId(null)} />
+
       <PickerSheet
         visible={projectPickerOpen}
         title="Görev hangi projeye eklensin?"
@@ -418,13 +401,16 @@ const CELL = `${100 / 7}%` as const;
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   content: {
     padding: 16,
@@ -444,6 +430,7 @@ const styles = StyleSheet.create({
   },
   segmentItem: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -479,6 +466,8 @@ const styles = StyleSheet.create({
     backgroundColor: L.pressed,
   },
   periodTitle: {
+    flexShrink: 1,
+    textAlign: 'center',
     color: L.ink,
     fontFamily: F.uiSemi,
     fontSize: 15,
@@ -549,6 +538,7 @@ const styles = StyleSheet.create({
   },
   weekDay: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     gap: 5,
     paddingVertical: 10,
@@ -646,11 +636,13 @@ const styles = StyleSheet.create({
     backgroundColor: L.pressed,
   },
   targetChip: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 8,
-    height: 32,
+    minHeight: 44,
+    paddingVertical: 8,
     paddingHorizontal: 10,
     backgroundColor: L.surface,
     borderWidth: 1,
@@ -658,6 +650,7 @@ const styles = StyleSheet.create({
     borderRadius: R.md,
   },
   targetChipText: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -668,6 +661,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    minWidth: 0,
     height: 48,
     color: L.ink,
     fontFamily: F.ui,

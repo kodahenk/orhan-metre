@@ -7,11 +7,14 @@ import {
   Animated,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from 'react-native';
+
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { taskPathLabel, useProjects } from '@/features/projects/projects-context';
 import { formatClock, formatDate, formatTime } from '@/features/timer/format';
@@ -79,6 +82,7 @@ export default function FullscreenTimerScreen() {
   // Nefes Al: hem akarken hem beklerken sonraki tura geçilebilir.
   const inBreathe = (running && timer.phase === 'breathe') || waiting;
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   // Zamanlayıcı ekranı odaktayken tam ekran: sistem çubukları gizlenir,
   // ekrandan çıkınca geri gelir.
@@ -223,7 +227,8 @@ export default function FullscreenTimerScreen() {
   })();
 
   return (
-    <Pressable style={styles.screen} onPress={onScreenPress} android_disableSound>
+    <ScrollView style={{ flex: 1, backgroundColor: D.bg }} contentContainerStyle={{ flexGrow: 1 }}>
+    <Pressable style={[styles.screen, { paddingTop: Math.max(80, insets.top + 56), paddingBottom: Math.max(24, insets.bottom), paddingLeft: Math.max(16, insets.left), paddingRight: Math.max(16, insets.right) }]} onPress={onScreenPress} android_disableSound>
       {/* Üst köşe: sekmelere dönüş (oturum devam eder) */}
       <Animated.View
         style={[styles.backWrap, { opacity: chromeOpacity }]}
@@ -257,7 +262,7 @@ export default function FullscreenTimerScreen() {
         {sessionProject && (
           <View style={styles.projectRow}>
             <View style={[styles.projectDot, { backgroundColor: sessionProject.color }]} />
-            <Text style={styles.projectText} maxFontSizeMultiplier={1.2}>
+            <Text numberOfLines={2} style={styles.projectText} maxFontSizeMultiplier={1.2}>
               {sessionProject.name}
             </Text>
           </View>
@@ -421,6 +426,7 @@ export default function FullscreenTimerScreen() {
         onClose={() => setTaskPickerOpen(false)}
       />
     </Pressable>
+    </ScrollView>
   );
 }
 
@@ -458,19 +464,23 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   chrome: {
+    width: '100%',
+    maxWidth: 600,
     alignItems: 'center',
-    gap: 20,
+    gap: 12,
     minHeight: 96,
     justifyContent: 'center',
   },
   phaseLabel: {
+    textAlign: 'center',
     color: D.text2,
     fontFamily: F.mono,
     fontSize: 20,
-    letterSpacing: 8,
+    letterSpacing: 3,
     textTransform: 'uppercase',
   },
   projectRow: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -481,6 +491,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   projectText: {
+    flexShrink: 1,
     color: D.text3,
     fontFamily: F.mono,
     fontSize: 12,
@@ -560,23 +571,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   chip: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    height: 36,
-    maxWidth: 220,
+    minHeight: 44,
+    paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: R.md,
     borderWidth: 1,
     borderColor: D.border,
   },
   chipText: {
+    flexShrink: 1,
     color: D.text2,
     fontFamily: F.mono,
     fontSize: 12,
     letterSpacing: 1,
   },
   buttonRow: {
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     flexDirection: 'row',
     gap: 12,
   },

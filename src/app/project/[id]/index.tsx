@@ -1,3 +1,4 @@
+import { RowActions } from '@/features/ui/row-actions';
 import { Pagination, TaskFilters, useTaskCollection } from '@/features/ui/collection';
 import { groupBy, pageWindow } from '@/features/ui/collection-utils';
 import { FormScrollView } from '@/features/ui/form-scroll-view';
@@ -108,7 +109,7 @@ export default function ProjectDetailScreen() {
   if (!project) {
     return (
       <View style={styles.screen}>
-        <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
           <Text style={styles.emptyText}>Proje bulunamadı.</Text>
           <Pressable
             style={({ pressed }) => [styles.backHome, pressed && { opacity: 0.6 }]}
@@ -142,7 +143,11 @@ export default function ProjectDetailScreen() {
     setGoalModalOpen(true);
   };
 
+  const goalNumber = Number(goalTarget.replace(',', '.'));
+  const validGoal = goalTarget.trim() !== '' && Number.isFinite(goalNumber) && goalNumber > 0 && (goalMetric === 'hours' || Number.isInteger(goalNumber));
+
   const saveGoal = () => {
+    if (!validGoal) return;
     const target = Number(goalTarget.replace(',', '.'));
     if (Number.isFinite(target) && target > 0) {
       setProjectGoal(project.id, { metric: goalMetric, target, period: goalPeriod });
@@ -202,7 +207,7 @@ export default function ProjectDetailScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         {/* Başlık */}
         <View style={styles.header}>
           <Pressable
@@ -386,30 +391,7 @@ export default function ProjectDetailScreen() {
                               {formatDuration(childSeconds)}
                             </Text>
                           )}
-                          <View style={styles.orderCol}>
-                            <Pressable
-                              hitSlop={6}
-                              onPress={() => moveProject(child.id, -1)}
-                              disabled={children[0]?.id === child.id}
-                            >
-                              <Feather
-                                name="chevron-up"
-                                size={16}
-                                color={children[0]?.id === child.id ? L.hairline : L.tertiary}
-                              />
-                            </Pressable>
-                            <Pressable
-                              hitSlop={6}
-                              onPress={() => moveProject(child.id, 1)}
-                              disabled={children[children.length - 1]?.id === child.id}
-                            >
-                              <Feather
-                                name="chevron-down"
-                                size={16}
-                                color={children[children.length - 1]?.id === child.id ? L.hairline : L.tertiary}
-                              />
-                            </Pressable>
-                          </View>
+                          <RowActions label={child.name} onMove={(direction) => moveProject(child.id, direction)} first={children[0]?.id === child.id} last={children[children.length - 1]?.id === child.id} />
                           <Feather name="chevron-right" size={18} color={L.tertiary} />
                         </Pressable>
                       );
@@ -528,30 +510,7 @@ export default function ProjectDetailScreen() {
                           </View>
                         )}
                       </Pressable>
-                      <View style={styles.orderCol}>
-                        <Pressable
-                          hitSlop={6}
-                          onPress={() => moveTaskOrder(task.id, -1)}
-                          disabled={topTasks[0]?.id === task.id}
-                        >
-                          <Feather
-                            name="chevron-up"
-                            size={16}
-                            color={topTasks[0]?.id === task.id ? L.hairline : L.tertiary}
-                          />
-                        </Pressable>
-                        <Pressable
-                          hitSlop={6}
-                          onPress={() => moveTaskOrder(task.id, 1)}
-                          disabled={topTasks[topTasks.length - 1]?.id === task.id}
-                        >
-                          <Feather
-                            name="chevron-down"
-                            size={16}
-                            color={topTasks[topTasks.length - 1]?.id === task.id ? L.hairline : L.tertiary}
-                          />
-                        </Pressable>
-                      </View>
+                      <RowActions label={task.title} onMove={(direction) => moveTaskOrder(task.id, direction)} first={topTasks[0]?.id === task.id} last={topTasks[topTasks.length - 1]?.id === task.id} onStart={() => startTimerHere(task.id)} />
                       <Feather name="chevron-right" size={18} color={L.tertiary} />
                     </View>
                   );
@@ -612,7 +571,8 @@ export default function ProjectDetailScreen() {
               Hedef ({goalMetric === 'hours' ? 'saat' : 'tur sayısı'})
             </Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { flex: undefined, minHeight: 48 }]}
+              accessibilityLabel="Hedef miktarı"
               value={goalTarget}
               onChangeText={setGoalTarget}
               keyboardType="decimal-pad"
@@ -645,6 +605,7 @@ export default function ProjectDetailScreen() {
               ))}
             </View>
 
+            {!validGoal && !!goalTarget && <Text accessibilityLiveRegion="polite" style={{ color: L.danger, fontFamily: F.ui, fontSize: 13 }}>Sıfırdan büyük {goalMetric === 'rounds' ? 'bir tam sayı' : 'bir saat değeri'} gir.</Text>}
             <View style={styles.modalButtons}>
               {project.goal && (
                 <Pressable
@@ -661,7 +622,8 @@ export default function ProjectDetailScreen() {
               )}
               <View style={styles.flex} />
               <Pressable
-                style={({ pressed }) => [styles.modalSave, pressed && styles.timerButtonPressed]}
+                accessibilityRole="button" disabled={!validGoal} accessibilityState={{ disabled: !validGoal }}
+                style={({ pressed }) => [styles.modalSave, !validGoal && { opacity: 0.45 }, pressed && styles.timerButtonPressed]}
                 onPress={saveGoal}
               >
                 <Text style={styles.modalSaveText} maxFontSizeMultiplier={1.2}>
@@ -1024,7 +986,7 @@ const styles = StyleSheet.create({
   },
   segment: {
     flexDirection: 'row',
-    height: 36,
+    minHeight: 44,
     backgroundColor: L.surface,
     borderWidth: 1,
     borderColor: L.border,
@@ -1032,6 +994,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   segmentItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     flex: 1,
     minWidth: 0,
     alignItems: 'center',
@@ -1045,6 +1009,7 @@ const styles = StyleSheet.create({
     backgroundColor: L.selected,
   },
   segmentText: {
+    textAlign: 'center',
     color: L.ink2,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -1054,6 +1019,8 @@ const styles = StyleSheet.create({
     fontFamily: F.uiSemi,
   },
   modalButtons: {
+    flexWrap: 'wrap',
+    gap: 8,
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 12,

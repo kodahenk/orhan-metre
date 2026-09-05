@@ -1,6 +1,7 @@
+import { useDraftSave } from '@/features/ui/use-draft-save';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -23,7 +24,7 @@ export default function ProjectNotesScreen() {
   const project = projects.find((p) => p.id === id);
 
   const [body, setBody] = useState(project?.noteBody ?? '');
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteSave = useDraftSave(project?.id);
 
   // Taslak, proje kimliği değiştiğinde tazelenir: ekran veri gelmeden monte
   // olsa bile boş taslak kaydedilip notun üzerine yazılmasın.
@@ -38,19 +39,11 @@ export default function ProjectNotesScreen() {
   // Yazarken 500 ms'de bir otomatik kaydet; çıkarken son halini yaz.
   const onChange = (text: string) => {
     setBody(text);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      if (project) setProjectNote(project.id, text);
-    }, 500);
+    noteSave.schedule(() => { if (project) setProjectNote(project.id, text); });
   };
 
-  useEffect(() => {
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, []);
-
   const goBack = () => {
+    noteSave.flush();
     // DataGate veriler yüklenmeden editörü açmaz; boş not da geçerli bir düzenlemedir.
     if (project) {
       setProjectNote(project.id, body);
@@ -61,7 +54,7 @@ export default function ProjectNotesScreen() {
   if (!project) {
     return (
       <View style={styles.screen}>
-        <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
           <Text style={styles.empty}>Proje bulunamadı.</Text>
         </SafeAreaView>
       </View>
@@ -70,7 +63,7 @@ export default function ProjectNotesScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <Pressable
             onPress={goBack}
@@ -113,13 +106,16 @@ export default function ProjectNotesScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: L.surface,
   },
   safeArea: {
     flex: 1,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   header: {
     flexDirection: 'row',
@@ -139,9 +135,11 @@ const styles = StyleSheet.create({
   },
   headerCenter: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
   },
   headerTitle: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiSemi,
     fontSize: 16,
@@ -154,6 +152,7 @@ const styles = StyleSheet.create({
   },
   editor: {
     flex: 1,
+    minWidth: 0,
     color: L.ink,
     fontFamily: F.ui,
     fontSize: 15,

@@ -199,17 +199,15 @@ export default function ReportsScreen() {
 
   // Hedefler.
   const goalRows = useMemo(() => {
+    const projectChildren = groupBy(projects, (p) => p.parentId);
+    const projectSessions = groupBy(sessions, (s) => s.projectId);
     return projects
       .filter((p) => p.goal && (!filterScope || filterScope.has(p.id)))
       .map((p) => {
         const goal = p.goal!;
         const from = goalWindowStart(goal.period);
-        const childIds = projects.filter((c) => c.parentId === p.id).map((c) => c.id);
-        const relevant = sessions.filter(
-          (s) =>
-            s.startedAt >= from &&
-            (s.projectId === p.id || (s.projectId != null && childIds.includes(s.projectId))),
-        );
+        const childIds = (projectChildren.get(p.id) ?? []).map((c) => c.id);
+        const relevant = [p.id, ...childIds].flatMap((id) => projectSessions.get(id) ?? []).filter((s) => s.startedAt >= from);
         const current =
           goal.metric === 'hours'
             ? relevant.reduce((sum, s) => sum + s.workSeconds, 0) / 3600
@@ -265,7 +263,7 @@ export default function ReportsScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScreenHeader
           title="Raporlar"
           subtitle="Emeğini görünür kılan istatistikler"

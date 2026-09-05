@@ -160,7 +160,7 @@ export default function ProjectsScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Projeler" subtitle="Hedeflerin için düzenli bir çalışma alanı" right={<HeaderIconButton icon="plus" label="Yeni proje oluştur" onPress={() => setCreateOpen(true)} />} />
         <View style={styles.listContainer}>
           <FlashList data={rows} keyExtractor={(row) => row.project.id}

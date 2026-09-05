@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -25,9 +25,19 @@ export default function TimerTabScreen() {
   const { settings } = useTimerSettings();
   const { projects, tasks } = useProjects();
   const { sessions } = useSessions();
-  const todaySessions = sessions.filter((s) => s.startedAt >= startOfToday().getTime());
-  const todaySeconds = todaySessions.reduce((sum, s) => sum + s.workSeconds, 0);
-  const todayRounds = todaySessions.reduce((sum, s) => sum + s.completedRounds, 0);
+  const todayStart = startOfToday().getTime();
+  const { todaySeconds, todayRounds, todayCount } = useMemo(() => {
+    let todaySeconds = 0;
+    let todayRounds = 0;
+    let todayCount = 0;
+    for (const session of sessions) {
+      if (session.startedAt < todayStart) continue;
+      todaySeconds += session.workSeconds;
+      todayRounds += session.completedRounds;
+      todayCount += 1;
+    }
+    return { todaySeconds, todayRounds, todayCount };
+  }, [sessions, todayStart]);
   const { width, height } = useWindowDimensions();
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
@@ -89,7 +99,7 @@ export default function TimerTabScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScreenHeader
           title="Zamanlayıcı"
           subtitle="Bir seferde tek işe odaklan"
@@ -111,7 +121,7 @@ export default function TimerTabScreen() {
             {!idle && lockedProject && (
               <View style={styles.lockedProjectRow}>
                 <View style={[styles.projectDot, { backgroundColor: lockedProject.color }]} />
-                <Text style={styles.lockedProjectText} maxFontSizeMultiplier={1.2}>
+                <Text numberOfLines={2} style={styles.lockedProjectText} maxFontSizeMultiplier={1.2}>
                   {lockedProject.name}
                 </Text>
               </View>
@@ -210,7 +220,7 @@ export default function TimerTabScreen() {
                   ) : (
                     <Feather name="folder" size={14} color={L.ink2} />
                   )}
-                  <Text style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
+                  <Text numberOfLines={2} style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
                     {pendingProject ? pendingProject.name : 'Proje seç (isteğe bağlı)'}
                   </Text>
                   <Feather name="chevron-down" size={15} color={L.tertiary} />
@@ -225,7 +235,7 @@ export default function TimerTabScreen() {
                       onPress={() => setTaskPickerOpen(true)}
                     >
                       <Feather name="check-square" size={14} color={L.ink2} />
-                      <Text style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
+                      <Text numberOfLines={2} style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
                         {pendingTask ? pendingTask.title : 'Görevsiz'}
                       </Text>
                       <Feather name="chevron-down" size={15} color={L.tertiary} />
@@ -272,7 +282,7 @@ export default function TimerTabScreen() {
           </View>
         </Pressable>
           <View style={styles.summary}>
-            {[{ icon: 'clock' as const, value: formatDuration(todaySeconds), label: 'Bugünkü odak' }, { icon: 'check-circle' as const, value: String(todayRounds), label: 'Tamamlanan tur' }, { icon: 'layers' as const, value: String(todaySessions.length), label: 'Oturum' }].map((item) => <View key={item.label} style={styles.summaryItem}>
+            {[{ icon: 'clock' as const, value: formatDuration(todaySeconds), label: 'Bugünkü odak' }, { icon: 'check-circle' as const, value: String(todayRounds), label: 'Tamamlanan tur' }, { icon: 'layers' as const, value: String(todayCount), label: 'Oturum' }].map((item) => <View key={item.label} style={styles.summaryItem}>
               <Feather name={item.icon} size={17} color={L.accent} />
               <Text style={styles.summaryValue}>{item.value}</Text>
               <Text style={styles.summaryLabel}>{item.label}</Text>
@@ -313,9 +323,9 @@ const styles = StyleSheet.create({
   phaseChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: R.md, backgroundColor: L.canvas },
   phaseChipActive: { backgroundColor: L.selected },
   phaseChipText: { fontFamily: F.uiMed, fontSize: 11, color: L.tertiary },
-  summary: { flexDirection: 'row', gap: 10 },
-  summaryItem: { flex: 1, alignItems: 'center', gap: 8, paddingVertical: 18, paddingHorizontal: 6, borderRadius: R.lg, backgroundColor: L.surface, borderWidth: 1, borderColor: L.hairline },
-  summaryValue: { fontFamily: F.uiSemi, fontSize: 20, color: L.ink },
+  summary: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  summaryItem: { flex: 1, minWidth: 120, alignItems: 'center', gap: 8, paddingVertical: 18, paddingHorizontal: 6, borderRadius: R.lg, backgroundColor: L.surface, borderWidth: 1, borderColor: L.hairline },
+  summaryValue: { textAlign: 'center', flexShrink: 1, fontFamily: F.uiSemi, fontSize: 20, color: L.ink },
   summaryLabel: { fontFamily: F.ui, fontSize: 11, color: L.tertiary, textAlign: 'center' },
   body: {
     backgroundColor: L.surface,
@@ -340,11 +350,13 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   lockedProjectRow: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
   lockedProjectText: {
+    flexShrink: 1,
     color: L.tertiary,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -361,6 +373,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   dots: {
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
   },
@@ -410,6 +424,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   projectChip: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

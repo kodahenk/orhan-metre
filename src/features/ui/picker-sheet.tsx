@@ -33,11 +33,11 @@ function PickerContent({ title, options, selectedKey, onSelect, onClose }: Picke
   const sheetHeight = Math.min(availableHeight, options.length > 7 ? 580 : 104 + options.length * 66);
   return <Modal transparent visible animationType="fade" onRequestClose={onClose}>
     <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Pencereyi kapat" onPress={onClose} />
+      <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Pencereyi kapat" onPress={(event) => { event.stopPropagation(); onClose(); }} />
       <View accessibilityViewIsModal onAccessibilityEscape={onClose} style={[styles.sheet, { height: sheetHeight, maxHeight: '100%', paddingBottom: Math.max(12, insets.bottom) }]}>
         <View style={styles.header}>
           <Text accessibilityRole="header" style={styles.title} numberOfLines={2}>{title}</Text>
-          <Pressable style={styles.close} accessibilityRole="button" accessibilityLabel="Seçimi kapat" onPress={onClose}>
+          <Pressable style={styles.close} accessibilityRole="button" accessibilityLabel="Seçimi kapat" onPress={(event) => { event.stopPropagation(); onClose(); }}>
             <Feather name="x" size={22} color={L.ink2} />
           </Pressable>
         </View>
@@ -52,7 +52,8 @@ function PickerContent({ title, options, selectedKey, onSelect, onClose }: Picke
             const selected = selectedKey === item.key;
             return <Pressable accessibilityRole="button" accessibilityLabel={[item.label, item.caption].filter(Boolean).join(', ')}
               accessibilityState={{ selected }} style={({ pressed }) => [styles.row, item.indent && styles.indent, selected && styles.selected, pressed && styles.pressed]}
-              onPress={() => {
+              onPress={(event) => {
+                event.stopPropagation();
                 // Close the current sheet first. An action may immediately open a different sheet.
                 onClose();
                 onSelect(item.key);

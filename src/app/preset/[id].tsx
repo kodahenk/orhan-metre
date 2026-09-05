@@ -76,7 +76,7 @@ export default function PresetEditorScreen() {
   if (!preset) {
     return (
       <View style={styles.screen}>
-        <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
           <Text style={styles.emptyText}>Önayar bulunamadı.</Text>
           <Pressable
             style={({ pressed }) => [styles.backHome, pressed && { opacity: 0.6 }]}
@@ -118,7 +118,7 @@ export default function PresetEditorScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <Pressable
             onPress={() => router.back()}
@@ -222,13 +222,16 @@ export default function PresetEditorScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   header: {
     flexDirection: 'row',
@@ -248,6 +251,7 @@ const styles = StyleSheet.create({
     borderRadius: R.md,
   },
   headerTitle: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiSemi,
     fontSize: 17,

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 
+import { groupBy } from '@/features/ui/collection-utils';
 import { useProjects } from '@/features/projects/projects-context';
 import type { PickerOption } from '@/features/ui/components';
 import { useTimer } from './timer-context';
@@ -22,9 +23,10 @@ export function useSelectionPickers() {
 
   const projectOptions: PickerOption[] = useMemo(() => {
     const options: PickerOption[] = [{ key: NO_PROJECT_KEY, label: 'Projesiz' }];
+    const childProjects = groupBy(projects, (p) => p.parentId);
     for (const parent of projects.filter((p) => !p.parentId)) {
       options.push({ key: parent.id, label: parent.name, color: parent.color });
-      for (const child of projects.filter((p) => p.parentId === parent.id)) {
+      for (const child of childProjects.get(parent.id) ?? []) {
         options.push({ key: child.id, label: child.name, color: child.color, indent: true });
       }
     }
@@ -52,19 +54,27 @@ export function useSelectionPickers() {
   const taskOptions: PickerOption[] = useMemo(() => {
     const options: PickerOption[] = [{ key: NO_TASK_KEY, label: 'Görevsiz' }];
     const ids = new Set(projectTasks.map((t) => t.id));
+    const byProject = groupBy(projectTasks, (t) => t.projectId);
+    const byParent = groupBy(projectTasks, (t) => t.parentTaskId);
+    const projectById = new Map(projects.map((p) => [p.id, p]));
+    const visited = new Set<string>();
     for (const projectId of scopeIds) {
-      const owned = projectTasks.filter((t) => t.projectId === projectId);
+      const owned = byProject.get(projectId) ?? [];
       if (owned.length === 0) continue;
       // Alt projenin görevlerinde hangi projeye ait olduğu alt yazıyla belirtilir.
       const childName =
-        projectId === scopeIds[0] ? undefined : projects.find((p) => p.id === projectId)?.name;
+        projectId === scopeIds[0] ? undefined : projectById.get(projectId)?.name;
       const tops = owned.filter((t) => !t.parentTaskId || !ids.has(t.parentTaskId));
       for (const top of tops) {
+        if (visited.has(top.id)) continue;
+        visited.add(top.id);
         options.push({ key: top.id, label: top.title, caption: childName });
         const stack = [top.id];
         while (stack.length > 0) {
           const parentId = stack.pop()!;
-          for (const sub of owned.filter((t) => t.parentTaskId === parentId)) {
+          for (const sub of byParent.get(parentId) ?? []) {
+            if (visited.has(sub.id) || sub.projectId !== projectId) continue;
+            visited.add(sub.id);
             options.push({ key: sub.id, label: sub.title, indent: true, caption: childName });
             stack.push(sub.id);
           }

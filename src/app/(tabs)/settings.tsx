@@ -1,7 +1,9 @@
+import { Pagination, SearchField } from '@/features/ui/collection';
+import { pageWindow, searchText } from '@/features/ui/collection-utils';
 import { FormScrollView } from '@/features/ui/form-scroll-view';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
   Pressable,
@@ -33,6 +35,12 @@ import { D, F, L, R } from '@/features/ui/theme';
 export default function SettingsScreen() {
   const router = useRouter();
   const { settings, presets, save, addPreset } = useTimerSettings();
+
+  const [presetQuery, setPresetQuery] = useState('');
+  const [presetPage, setPresetPage] = useState(0);
+  const deferredPresetQuery = useDeferredValue(presetQuery);
+  const filteredPresets = useMemo(() => presets.filter((p) => searchText(p.name).includes(searchText(deferredPresetQuery))), [presets, deferredPresetQuery]);
+  const presetWindow = pageWindow(filteredPresets.length, presetPage, 10);
 
   const [autoAdvance, setAutoAdvance] = useState(settings.autoAdvance);
   const [workEndReminder, setWorkEndReminder] = useState(settings.workEndReminderMinutes);
@@ -75,8 +83,15 @@ export default function SettingsScreen() {
     return () => sub.remove();
   }, []);
 
+  const validPlannedStart = !plannedStart.trim() || /^([01]\d|2[0-3]):[0-5]\d$/.test(plannedStart.trim());
+  const breatheValue = Number(minBreathe.replace(',', '.'));
+  const validBreathe = minBreathe.trim() !== '' && Number.isFinite(breatheValue) && breatheValue >= MIN_BREATHE_LIMITS.min && breatheValue <= MIN_BREATHE_LIMITS.max;
+  const formError = !validPlannedStart ? 'Başlangıç saatini SS:DD biçiminde gir (ör. 09:00).' : !validBreathe ? `Minimum nefes süresi ${MIN_BREATHE_LIMITS.min}–${MIN_BREATHE_LIMITS.max} dakika olmalı.` : null;
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const onSave = async () => {
-    if (saving) return;
+    if (saving || formError) return;
+    setSaveError(null);
     setSaving(true);
     try {
       // Geçersiz saat/dk girişlerini sanitizeSettings eler (saat → null,
@@ -93,6 +108,8 @@ export default function SettingsScreen() {
       setSavedFlash(true);
       if (flashTimer.current) clearTimeout(flashTimer.current);
       flashTimer.current = setTimeout(() => setSavedFlash(false), 2000);
+    } catch {
+      setSaveError('Ayarlar kaydedilemedi. Değişikliklerin burada duruyor; tekrar deneyebilirsin.');
     } finally {
       setSaving(false);
     }
@@ -105,7 +122,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Ayarlar" subtitle="Sana uyum sağlayan bir çalışma ritmi" />
         <FormScrollView style={styles.flex} contentContainerStyle={styles.content}>
           <ScreenIntro eyebrow="TERCİHLERİN" title="Kendi ritmini bul." description="Odak sürelerini, molalarını ve bildirimlerini çalışma alışkanlığına göre düzenle." />
@@ -117,8 +134,10 @@ export default function SettingsScreen() {
             Radyoya dokunmak genel varsayılanı seçer; satıra dokunmak önayarı düzenler.
             Projeler kendi önayarını proje detayından atayabilir.
           </Text>
+          {presets.length > 7 && <SearchField value={presetQuery} onChangeText={(text) => { setPresetQuery(text); setPresetPage(0); }} placeholder="Önayarlarda ara…" />}
+          {filteredPresets.length === 0 && <Text style={styles.sectionHint}>Bu aramayla eşleşen önayar yok.</Text>}
           <View style={styles.card}>
-            {presets.map((preset, i) => {
+            {filteredPresets.slice(presetWindow.start, presetWindow.end).map((preset, i) => {
               const isActive = activePresetId === preset.id;
               return (
                 <Pressable
@@ -130,7 +149,7 @@ export default function SettingsScreen() {
                   ]}
                   onPress={() => router.push(`/preset/${preset.id}`)}
                 >
-                  <Pressable hitSlop={10} onPress={() => setActivePresetId(preset.id)}>
+                  <Pressable hitSlop={10} accessibilityRole="radio" accessibilityState={{ checked: isActive }} accessibilityLabel={`${preset.name} varsayılan seç`} onPress={(event) => { event.stopPropagation(); setActivePresetId(preset.id); }}>
                     <Feather
                       name={isActive ? 'check-circle' : 'circle'}
                       size={19}
@@ -152,6 +171,7 @@ export default function SettingsScreen() {
               );
             })}
           </View>
+          <Pagination total={filteredPresets.length} page={presetWindow.page} onChange={setPresetPage} size={10} />
           <Pressable
             style={({ pressed }) => [styles.addButton, pressed && styles.rowPressed]}
             onPress={onAddPreset}
@@ -402,18 +422,21 @@ export default function SettingsScreen() {
             ))}
           </View>
 
+          {(formError || saveError) && <Text accessibilityLiveRegion="polite" style={{ color: L.danger, fontFamily: F.ui, fontSize: 13, lineHeight: 20 }}>{formError || saveError}</Text>}
           <Pressable
+            accessibilityRole="button" accessibilityState={{ disabled: saving || !!formError, busy: saving }}
             style={({ pressed }) => [
               styles.saveButton,
+              (saving || !!formError) && { opacity: 0.45 },
               savedFlash && styles.saveButtonDone,
               pressed && !savedFlash && styles.saveButtonPressed,
             ]}
             onPress={onSave}
-            disabled={saving}
+            disabled={saving || !!formError}
           >
             <Feather name={savedFlash ? 'check-circle' : 'check'} size={18} color="#FFFFFF" />
             <Text style={styles.saveButtonText} maxFontSizeMultiplier={1.3}>
-              {savedFlash ? 'Kaydedildi' : 'Kaydet'}
+              {saving ? 'Kaydediliyor…' : savedFlash ? 'Kaydedildi' : 'Kaydet'}
             </Text>
           </Pressable>
           <Text style={styles.footnote} maxFontSizeMultiplier={1.3}>
@@ -428,13 +451,16 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   content: {
     paddingHorizontal: 16,
@@ -483,6 +509,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   presetName: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 15,
@@ -493,6 +520,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   presetMeta: {
+    flexShrink: 1,
     color: L.tertiary,
     fontFamily: F.ui,
     fontSize: 12,
@@ -525,6 +553,7 @@ const styles = StyleSheet.create({
     backgroundColor: L.selected,
   },
   optionTitle: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 14,
@@ -563,6 +592,7 @@ const styles = StyleSheet.create({
   },
   inlineField: {
     flex: 1,
+    minWidth: 0,
     gap: 6,
   },
   input: {
@@ -587,6 +617,7 @@ const styles = StyleSheet.create({
   },
   segmentItem: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },

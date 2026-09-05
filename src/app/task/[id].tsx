@@ -1,771 +1,152 @@
-import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useProjects, type Task } from '@/features/projects/projects-context';
+import { useProjects } from '@/features/projects/projects-context';
 import { useSessions } from '@/features/sessions/sessions-context';
-import { addDays, dateKey, formatDate, formatDuration } from '@/features/timer/format';
+import { formatDate, formatDuration, parseDateKey } from '@/features/timer/format';
 import { useTimer } from '@/features/timer/timer-context';
-import { Checkbox, PickerSheet, type PickerOption } from '@/features/ui/components';
+import { Button, Checkbox, HeaderIconButton, PickerSheet, ScreenHeader } from '@/features/ui/components';
+import { AddRow, FieldRow, SectionTitle } from '@/features/ui/compact';
+import { Pagination, SearchField } from '@/features/ui/collection';
+import { pageWindow, searchText } from '@/features/ui/collection-utils';
+import { DateSheet } from '@/features/ui/date-sheet';
 import { confirmAction } from '@/features/ui/dialogs';
-import { Pagination, TaskFilters, useTaskCollection } from '@/features/ui/collection';
-import { groupBy } from '@/features/ui/collection-utils';
 import { FormScrollView } from '@/features/ui/form-scroll-view';
+import { FormSheet } from '@/features/ui/form-sheet';
+import { useDraftSave } from '@/features/ui/use-draft-save';
 import { F, L, R } from '@/features/ui/theme';
 
-/**
- * Görev detayı: görev + yalnızca DOĞRUDAN alt görevleri (her ekranda en fazla
- * 2 seviye). Alt görevin kendi altları varsa satırına dokununca ONUN detayına
- * inilir — sınırsız derinlik, üstte kırıntı ile geri sıçranır.
- */
 export default function TaskDetailScreen() {
-  const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { projects, tasks, addTask, updateTask, deleteTask, moveTask, moveTaskOrder } =
-    useProjects();
-  const timer = useTimer();
-
-  const task = tasks.find((t) => t.id === id);
-  const project = task ? projects.find((p) => p.id === task.projectId) : null;
-
-  const [newSubtask, setNewSubtask] = useState('');
-
-  // Başlık taslağı: görev değişince tazelenir, yazarken 500 ms'de bir kaydedilir
-  // (açıklama alanıyla aynı desen). Boş başlık kaydedilmez.
-  const [titleDraft, setTitleDraft] = useState(task?.title ?? '');
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Açıklama taslağı: görev değişince tazelenir, yazarken 500 ms'de bir kaydedilir.
-  const [noteDraft, setNoteDraft] = useState(task?.note ?? '');
-  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const taskId = task?.id;
-  const taskNote = task?.note ?? '';
-  const taskTitle = task?.title ?? '';
-  const [draftTaskId, setDraftTaskId] = useState(taskId);
-  if (draftTaskId !== taskId) {
-    setDraftTaskId(taskId);
-    setNoteDraft(taskNote);
-    setTitleDraft(taskTitle);
-  }
-  useEffect(() => {
-    return () => {
-      if (noteTimer.current) clearTimeout(noteTimer.current);
-      if (titleTimer.current) clearTimeout(titleTimer.current);
-    };
-  }, []);
-
-  const onTitleChange = (text: string) => {
-    setTitleDraft(text);
-    if (titleTimer.current) clearTimeout(titleTimer.current);
-    titleTimer.current = setTimeout(() => {
-      const clean = text.trim();
-      if (taskId && clean) updateTask(taskId, { title: clean });
-    }, 500);
-  };
-  const onNoteChange = (text: string) => {
-    setNoteDraft(text);
-    if (noteTimer.current) clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => {
-      if (taskId) updateTask(taskId, { note: text });
-    }, 500);
-  };
-
-  // Kırıntı: proje › üst görev zinciri.
-  const crumbs = useMemo(() => {
-    const chain: Task[] = [];
-    let current = task?.parentTaskId ? tasks.find((t) => t.id === task.parentTaskId) : undefined;
-    while (current) {
-      chain.unshift(current);
-      current = current.parentTaskId
-        ? tasks.find((t) => t.id === current!.parentTaskId)
-        : undefined;
-    }
-    return chain;
-  }, [task, tasks]);
-
-  const children = useMemo(
-    () =>
-      tasks
-        .filter((t) => t.parentTaskId === id)
-        .sort((a, b) => a.orderIndex - b.orderIndex),
-    [tasks, id],
-  );
-
-  // Bu göreve + tüm alt ağacına yazılmış oturumların toplam çalışma süresi.
-  // Rapor felsefesiyle aynı: okuma anında hesaplanır, sayaç saklanmaz.
+  const router = useRouter();
+  const { projects, tasks, updateTask, deleteTask, moveTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, moveChecklistItem } = useProjects();
+  // Old deep links resolve to the owning task after migration.
+  const task = tasks.find((t) => t.id === id || t.legacyTaskIds.includes(id));
+  const project = projects.find((p) => p.id === task?.projectId);
   const { sessions } = useSessions();
-  const totalWorkSeconds = useMemo(() => {
-    if (!id) return 0;
-    const subtree = new Set([id]);
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const t of tasks) {
-        if (t.parentTaskId && subtree.has(t.parentTaskId) && !subtree.has(t.id)) {
-          subtree.add(t.id);
-          grew = true;
-        }
-      }
-    }
-    return sessions.reduce(
-      (sum, s) => (s.taskId && subtree.has(s.taskId) ? sum + s.workSeconds : sum),
-      0,
-    );
-  }, [sessions, tasks, id]);
-  const taskChildren = useMemo(() => groupBy(tasks, (t) => t.parentTaskId), [tasks]);
-  const grandChildCount = (taskId: string) => taskChildren.get(taskId)?.length ?? 0;
-
-  // Görevi başka projeye taşıma: alt ağacı da birlikte taşınır (moveTask).
-  const projectOptions: PickerOption[] = useMemo(() => {
-    const options: PickerOption[] = [];
-    for (const parent of projects.filter((pr) => !pr.parentId)) {
-      options.push({ key: parent.id, label: parent.name, color: parent.color });
-      for (const child of projects.filter((pr) => pr.parentId === parent.id)) {
-        options.push({ key: child.id, label: child.name, color: child.color, indent: true });
-      }
-    }
-    return options;
-  }, [projects]);
-
-  // Rasgele tarih: yeni bağımlılık yerine önümüzdeki 3 haftadan seçim.
-  const dateOptions: PickerOption[] = useMemo(() => {
-    const options: PickerOption[] = [{ key: '__none__', label: 'Tarihsiz' }];
-    for (let i = 0; i < 21; i++) {
-      const d = addDays(new Date(), i);
-      options.push({
-        key: dateKey(d),
-        label: i === 0 ? 'Bugün' : i === 1 ? 'Yarın' : formatDate(d),
-        caption: i > 1 ? undefined : formatDate(d),
-      });
-    }
-    return options;
-  }, []);
-
-  const taskList = useTaskCollection(children, id);
-
-  if (!task || !project) {
-    return (
-      <View style={styles.screen}>
-        <SafeAreaView style={styles.safeArea} edges={['top']}>
-          <Text style={styles.emptyText}>Görev bulunamadı.</Text>
-          <Pressable
-            style={({ pressed }) => [styles.backHome, pressed && { opacity: 0.6 }]}
-            onPress={() => router.back()}
-          >
-            <Feather name="chevron-left" size={16} color={L.ink2} />
-            <Text style={styles.backHomeText}>Geri dön</Text>
-          </Pressable>
-        </SafeAreaView>
-      </View>
-    );
+  const timer = useTimer();
+  const [title, setTitle] = useState(task?.title ?? '');
+  const [note, setNote] = useState(task?.note ?? '');
+  const [newItem, setNewItem] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const [projectOpen, setProjectOpen] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
+  const [itemMenu, setItemMenu] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<string | null>(null);
+  const [itemTitle, setItemTitle] = useState('');
+  const [itemNote, setItemNote] = useState('');
+  const [draftId, setDraftId] = useState(task?.id);
+  if (draftId !== task?.id) {
+    setDraftId(task?.id); setTitle(task?.title ?? ''); setNote(task?.note ?? '');
+    setNewItem(''); setSearch(''); setPage(0); setItemMenu(null); setEditingItem(null);
   }
+  const titleSave = useDraftSave(task?.id);
+  const noteSave = useDraftSave(task?.id);
+  const checklist = useMemo(() => [...(task?.checklist ?? [])].sort((a, b) => a.orderIndex - b.orderIndex), [task?.checklist]);
+  const filtered = checklist.filter((item) => searchText(item.title).includes(searchText(search)));
+  const window = pageWindow(filtered.length, page);
+  const done = checklist.filter((i) => i.done).length;
+  const totalSeconds = useMemo(() => {
+    const ids = new Set([task?.id, ...(task?.legacyTaskIds ?? [])]);
+    return sessions.reduce((sum, s) => ids.has(s.taskId ?? undefined) ? sum + s.workSeconds : sum, 0);
+  }, [sessions, task?.id, task?.legacyTaskIds]);
+  const menuItem = checklist.find((i) => i.id === itemMenu);
 
-  const doneChildren = children.filter((t) => t.done).length;
+  if (!task || !project) return <SafeAreaView style={styles.screen}>
+    <ScreenHeader title="Görev bulunamadı" left={<HeaderIconButton icon="arrow-left" label="Geri" onPress={() => router.back()} />} />
+    <View style={styles.content}><Button label="Projelere dön" onPress={() => router.replace('/projects')} /></View>
+  </SafeAreaView>;
 
-  const submitSubtask = () => {
-    const title = newSubtask.trim();
-    if (!title) return;
-    addTask(project.id, task.id, title);
-    setNewSubtask('');
+  const addItem = () => {
+    if (!newItem.trim()) return;
+    addChecklistItem(task.id, newItem); setNewItem(''); setSearch('');
+    setPage(Math.floor(checklist.length / 30));
   };
-
-  const confirmDelete = () => {
-    confirmAction({
-      title: 'Görevi sil',
-      message: `"${task.title}" ve tüm alt görevleri silinecek.`,
-      onConfirm: () => {
-        deleteTask(task.id);
-        router.back();
-      },
-    });
+  const startFocus = () => {
+    if (timer.status !== 'idle') { router.push('/'); return; }
+    titleSave.flush(); noteSave.flush();
+    timer.setPendingProject(project.id); timer.setPendingTask(task.id);
+    router.push('/');
   };
-
-  const setDue = (due: string | null) => updateTask(task.id, { dueDate: due });
-  const todayKey = dateKey(new Date());
-  const tomorrowKey = dateKey(addDays(new Date(), 1));
-
-  return (
-    <View style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={8}
-            style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
-          >
-            <Feather name="chevron-left" size={24} color={L.ink} />
+  return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
+    <ScreenHeader title="Görev" left={<HeaderIconButton icon="arrow-left" label="Geri" onPress={() => router.back()} />}
+      right={<HeaderIconButton icon="trash-2" label="Görevi sil" onPress={() => confirmAction({ title: 'Görevi sil', message: 'Görev ve kontrol listesi silinecek. Çalışma kayıtların korunur.', onConfirm: () => { deleteTask(task.id); router.back(); } })} />} />
+    <FormScrollView style={styles.flex} contentContainerStyle={styles.content}>
+      <View style={styles.titleRow}>
+        <Checkbox checked={task.done} label="Görevi tamamla" onPress={() => updateTask(task.id, { done: !task.done })} />
+        <TextInput accessibilityLabel="Görev adı" value={title} multiline maxLength={160} placeholder="Görev adı"
+          style={[styles.title, task.done && styles.done]} onChangeText={(text) => { setTitle(text); titleSave.schedule(() => { if (text.trim()) updateTask(task.id, { title: text.trim() }); }); }} />
+      </View>
+      <View>
+        <FieldRow icon="folder" label="Proje" value={project.name} onPress={() => setProjectOpen(true)} />
+        <FieldRow icon="calendar" label="Tarih" value={task.dueDate ? formatDate(parseDateKey(task.dueDate)) : 'Tarih ekle'} onPress={() => setDateOpen(true)} />
+      </View>
+      <View>
+        <SectionTitle title="Not" detail="Otomatik kaydedilir" />
+        <TextInput accessibilityLabel="Görev notu" style={styles.note} multiline value={note} placeholder="Gerekli bilgileri ekle…" placeholderTextColor={L.tertiary}
+          onChangeText={(text) => { setNote(text); noteSave.schedule(() => updateTask(task.id, { note: text })); }} />
+      </View>
+      <View>
+        <SectionTitle title="Kontrol listesi" detail={`${done}/${checklist.length}`} />
+        {checklist.length > 0 && <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: checklist.length, now: done }} style={styles.track}><View style={[styles.progress, { width: `${done / checklist.length * 100}%` }]} /></View>}
+        {checklist.length > 8 && <SearchField value={search} onChangeText={(text) => { setSearch(text); setPage(0); }} placeholder="Maddelerde ara…" />}
+        {filtered.slice(window.start, window.end).map((item) => <View key={item.id} style={styles.checkRow}>
+          <Checkbox checked={item.done} label={item.title} onPress={() => updateChecklistItem(task.id, item.id, { done: !item.done })} />
+          <Pressable style={styles.flex} accessibilityRole="button" accessibilityLabel={`${item.title}, ${item.done ? 'tamamlandı' : 'açık'}`} onPress={() => updateChecklistItem(task.id, item.id, { done: !item.done })}>
+            <Text style={[styles.itemTitle, item.done && styles.done]}>{item.title}</Text>
+            {!!item.note && <Text numberOfLines={1} style={styles.itemNote}>{item.note}</Text>}
+            {!!item.dueDate && <Text style={styles.itemNote}>{item.dueDate}</Text>}
           </Pressable>
-          {/* Kırıntı: proje › üst görevler */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.crumbs}
-            style={styles.flex}
-          >
-            <Pressable onPress={() => router.push(`/project/${project.id}`)} hitSlop={6}>
-              <Text style={styles.crumb} maxFontSizeMultiplier={1.2}>
-                {project.name}
-              </Text>
-            </Pressable>
-            {crumbs.map((c) => (
-              <View key={c.id} style={styles.crumbItem}>
-                <Feather name="chevron-right" size={13} color={L.borderActive} />
-                <Pressable onPress={() => router.push(`/task/${c.id}`)} hitSlop={6}>
-                  <Text style={styles.crumb} numberOfLines={1} maxFontSizeMultiplier={1.2}>
-                    {c.title}
-                  </Text>
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-          <Pressable
-            onPress={confirmDelete}
-            hitSlop={8}
-            style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
-          >
-            <Feather name="trash-2" size={20} color={L.ink2} />
-          </Pressable>
-        </View>
-
-        <View style={styles.flex}>
-          <FormScrollView
-            style={styles.flex}
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Görev başlığı */}
-            <View style={styles.titleCard}>
-              <Checkbox
-                checked={task.done}
-                onPress={() => updateTask(task.id, { done: !task.done })}
-              />
-              <TextInput
-                style={[styles.title, styles.titleInput, task.done && styles.titleDone]}
-                value={titleDraft}
-                onChangeText={onTitleChange}
-                placeholder="Görev adı"
-                placeholderTextColor={L.tertiary}
-                maxLength={120}
-                multiline
-                maxFontSizeMultiplier={1.3}
-              />
-            </View>
-
-            {/* Görevin projesi — dokunarak başka projeye taşınır */}
-            <Pressable
-              style={({ pressed }) => [styles.metaRow, pressed && styles.pressedRow]}
-              onPress={() => setProjectPickerOpen(true)}
-            >
-              <View style={[styles.projectDot, { backgroundColor: project.color }]} />
-              <Text style={styles.metaText} maxFontSizeMultiplier={1.2}>
-                {project.name}
-              </Text>
-              <Feather name="chevron-down" size={14} color={L.tertiary} />
-            </Pressable>
-
-            {/* Zamanlayıcıdan bu göreve yazılan toplam çalışma süresi */}
-            {totalWorkSeconds > 0 && (
-              <View style={styles.timeRow}>
-                <Feather name="clock" size={13} color={L.tertiary} />
-                <Text style={styles.timeText} maxFontSizeMultiplier={1.2}>
-                  Çalışılan süre: {formatDuration(totalWorkSeconds)}
-                  {children.length > 0 ? ' · alt görevler dahil' : ''}
-                </Text>
-              </View>
-            )}
-
-            {/* Açıklama */}
-            <TextInput
-              style={styles.descInput}
-              value={noteDraft}
-              onChangeText={onNoteChange}
-              placeholder="Açıklama ekle — detay, bağlantı, not…"
-              placeholderTextColor={L.tertiary}
-              multiline
-              textAlignVertical="top"
-              maxFontSizeMultiplier={1.2}
-            />
-
-            {/* Bu görevle çalış: proje + görev seçimini yapıp zamanlayıcıya götürür.
-                Oturum sürerken gizlidir — görev oturum boyunca kilitlidir. */}
-            {timer.status === 'idle' && !task.done && (
-              <Pressable
-                style={({ pressed }) => [styles.workButton, pressed && styles.workButtonPressed]}
-                onPress={() => {
-                  timer.setPendingProject(project.id);
-                  timer.setPendingTask(task.id);
-                  router.push('/');
-                }}
-              >
-                <Feather name="play" size={16} color="#FFFFFF" />
-                <Text style={styles.workButtonText} maxFontSizeMultiplier={1.2}>
-                  Bu görevle çalış
-                </Text>
-              </Pressable>
-            )}
-
-            {/* Tarih çipleri */}
-            <View style={styles.chipRow}>
-              <Pressable
-                style={[styles.chip, task.dueDate === todayKey && styles.chipOn]}
-                onPress={() => setDue(todayKey)}
-              >
-                <Text
-                  style={[styles.chipText, task.dueDate === todayKey && styles.chipTextOn]}
-                  maxFontSizeMultiplier={1.2}
-                >
-                  Bugün
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.chip, task.dueDate === tomorrowKey && styles.chipOn]}
-                onPress={() => setDue(tomorrowKey)}
-              >
-                <Text
-                  style={[styles.chipText, task.dueDate === tomorrowKey && styles.chipTextOn]}
-                  maxFontSizeMultiplier={1.2}
-                >
-                  Yarın
-                </Text>
-              </Pressable>
-              <Pressable style={styles.chip} onPress={() => setDatePickerOpen(true)}>
-                <Feather name="calendar" size={12} color={L.ink2} />
-                <Text style={styles.chipText} maxFontSizeMultiplier={1.2}>
-                  {task.dueDate && task.dueDate !== todayKey && task.dueDate !== tomorrowKey
-                    ? formatDate(new Date(task.dueDate))
-                    : 'Tarih seç'}
-                </Text>
-              </Pressable>
-              {task.dueDate && (
-                <Pressable style={styles.chip} onPress={() => setDue(null)}>
-                  <Text style={styles.chipText} maxFontSizeMultiplier={1.2}>
-                    Tarihi kaldır
-                  </Text>
-                </Pressable>
-              )}
-            </View>
-
-            {/* Alt görevler */}
-            <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.3}>
-              ALT GÖREVLER {children.length > 0 ? `· ${doneChildren}/${children.length}` : ''}
-            </Text>
-
-            <View style={styles.addRow}>
-              <TextInput
-                style={styles.input}
-                value={newSubtask}
-                onChangeText={setNewSubtask}
-                placeholder="Alt görev ekle"
-                placeholderTextColor={L.tertiary}
-                onSubmitEditing={submitSubtask}
-                returnKeyType="done"
-                maxLength={80}
-              />
-              <Pressable
-                accessibilityRole="button" accessibilityLabel="Görev ekle" disabled={!newSubtask.trim()} accessibilityState={{ disabled: !newSubtask.trim() }}
-                style={({ pressed }) => [styles.addButton, !newSubtask.trim() && { opacity: 0.4 }, pressed && styles.addButtonPressed]}
-                onPress={submitSubtask}
-              >
-                <Feather name="plus" size={20} color="#FFFFFF" />
-              </Pressable>
-            </View>
-
-            {children.length > 0 && <TaskFilters collection={taskList} />}
-            {children.length > 0 && taskList.total === 0 && <Text style={styles.emptyText}>Bu filtrelerle eşleşen görev yok.</Text>}
-            {children.length === 0 && (
-              <Text style={styles.emptyText} maxFontSizeMultiplier={1.3}>
-                Alt görev yok.
-              </Text>
-            )}
-
-            {children.length > 0 && (
-              <View style={styles.card}>
-                {taskList.items.map((child, i) => {
-                  const grandCount = grandChildCount(child.id);
-                  return (
-                    <View key={child.id} style={[styles.taskRow, i > 0 && styles.rowSeparator]}>
-                      <Checkbox
-                        checked={child.done}
-                        onPress={() => updateTask(child.id, { done: !child.done })}
-                      />
-                      <Pressable
-                        style={styles.taskBody}
-                        onPress={() => router.push(`/task/${child.id}`)}
-                      >
-                        <Text
-                          numberOfLines={2}
-                          style={[styles.taskTitle, child.done && styles.titleDone]}
-                          maxFontSizeMultiplier={1.3}
-                        >
-                          {child.title}
-                        </Text>
-                        {!!child.note && (
-                          <Text
-                            style={styles.taskDesc}
-                            numberOfLines={1}
-                            maxFontSizeMultiplier={1.2}
-                          >
-                            {child.note}
-                          </Text>
-                        )}
-                        {grandCount > 0 && (
-                          <Text style={styles.taskMeta} maxFontSizeMultiplier={1.2}>
-                            {grandCount} alt görev
-                          </Text>
-                        )}
-                      </Pressable>
-                      <View style={styles.orderCol}>
-                        <Pressable
-                          hitSlop={6}
-                          onPress={() => moveTaskOrder(child.id, -1)}
-                          disabled={children[0]?.id === child.id}
-                        >
-                          <Feather
-                            name="chevron-up"
-                            size={16}
-                            color={children[0]?.id === child.id ? L.hairline : L.tertiary}
-                          />
-                        </Pressable>
-                        <Pressable
-                          hitSlop={6}
-                          onPress={() => moveTaskOrder(child.id, 1)}
-                          disabled={children[children.length - 1]?.id === child.id}
-                        >
-                          <Feather
-                            name="chevron-down"
-                            size={16}
-                            color={children[children.length - 1]?.id === child.id ? L.hairline : L.tertiary}
-                          />
-                        </Pressable>
-                      </View>
-                      <Feather name="chevron-right" size={18} color={L.tertiary} />
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-            <Pagination total={taskList.total} page={taskList.page} onChange={taskList.setPage} />
-          </FormScrollView>
-        </View>
-      </SafeAreaView>
-
-      <PickerSheet
-        visible={projectPickerOpen}
-        title="Görevi taşı"
-        options={projectOptions}
-        selectedKey={task.projectId}
-        onSelect={(key) => moveTask(task.id, key, task.parentTaskId)}
-        onClose={() => setProjectPickerOpen(false)}
-      />
-      <PickerSheet
-        visible={datePickerOpen}
-        title="Tarih seç"
-        options={dateOptions}
-        selectedKey={task.dueDate ?? '__none__'}
-        onSelect={(key) => setDue(key === '__none__' ? null : key)}
-        onClose={() => setDatePickerOpen(false)}
-      />
+          <HeaderIconButton icon="more-horizontal" label={`${item.title} işlemleri`} onPress={() => setItemMenu(item.id)} />
+        </View>)}
+        {!filtered.length && <Text style={styles.hint}>{search ? 'Eşleşen madde yok.' : 'Görevi bitirmek için gereken adımları ekle.'}</Text>}
+        <Pagination total={filtered.length} page={window.page} onChange={setPage} />
+        <AddRow value={newItem} onChange={setNewItem} onSubmit={addItem} placeholder="Kontrol maddesi ekle" />
+        <Text style={styles.hint}>Maddeleri işaretlemek görevi otomatik tamamlamaz.</Text>
+      </View>
+    </FormScrollView>
+    <View style={styles.footer}>
+      <Text style={styles.footnote}>{formatDuration(totalSeconds)} çalışma</Text>
+      <Button icon="play" label={timer.status === 'idle' ? 'Bu göreve odaklan' : 'Sayaca dön'} variant="primary" onPress={startFocus} />
     </View>
-  );
+    <DateSheet visible={dateOpen} value={task.dueDate} onClose={() => setDateOpen(false)} onSelect={(dueDate) => updateTask(task.id, { dueDate })} />
+    <PickerSheet visible={projectOpen} title="Projeyi değiştir" options={projects.map((p) => ({ key: p.id, label: p.name, color: p.color }))} selectedKey={project.id} onClose={() => setProjectOpen(false)} onSelect={(projectId) => moveTask(task.id, projectId)} />
+    <PickerSheet visible={!!menuItem} title={menuItem?.title ?? 'Kontrol maddesi'} onClose={() => setItemMenu(null)} options={[
+      { key: 'edit', label: 'Düzenle' },
+      ...(menuItem?.id !== checklist[0]?.id ? [{ key: 'up', label: 'Yukarı taşı' }] : []),
+      ...(menuItem?.id !== checklist[checklist.length - 1]?.id ? [{ key: 'down', label: 'Aşağı taşı' }] : []),
+      { key: 'delete', label: 'Maddeyi sil' },
+    ]} onSelect={(key) => {
+      if (!menuItem) return;
+      if (key === 'edit') { setItemTitle(menuItem.title); setItemNote(menuItem.note); setEditingItem(menuItem.id); }
+      else if (key === 'delete') confirmAction({ title: 'Maddeyi sil', message: menuItem.title, onConfirm: () => deleteChecklistItem(task.id, menuItem.id) });
+      else moveChecklistItem(task.id, menuItem.id, key === 'up' ? -1 : 1);
+    }} />
+    <FormSheet visible={!!editingItem} title="Maddeyi düzenle" onClose={() => setEditingItem(null)}>
+      <TextInput accessibilityLabel="Madde adı" style={styles.editInput} multiline value={itemTitle} onChangeText={setItemTitle} />
+      <TextInput accessibilityLabel="Madde notu" style={styles.editInput} multiline value={itemNote} onChangeText={setItemNote} placeholder="Not (isteğe bağlı)" />
+      <Button label="Kaydet" variant="primary" disabled={!itemTitle.trim()} onPress={() => { if (editingItem) updateChecklistItem(task.id, editingItem, { title: itemTitle, note: itemNote }); setEditingItem(null); }} />
+    </FormSheet>
+  </SafeAreaView>;
 }
-
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    minWidth: 0,
-    backgroundColor: L.canvas,
-  },
-  workButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 40,
-    backgroundColor: L.accent,
-    borderRadius: R.md,
-  },
-  workButtonPressed: {
-    backgroundColor: L.accentPressed,
-  },
-  workButtonText: {
-    color: '#FFFFFF',
-    fontFamily: F.uiSemi,
-    fontSize: 13,
-  },
-  metaRow: {
-    maxWidth: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: L.border,
-    borderRadius: R.md,
-    backgroundColor: L.surface,
-  },
-  pressedRow: {
-    backgroundColor: L.pressed,
-  },
-  metaText: {
-    flexShrink: 1,
-    color: L.ink,
-    fontFamily: F.uiMed,
-    fontSize: 12,
-  },
-  projectDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  orderCol: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  timeText: {
-    color: L.tertiary,
-    fontFamily: F.ui,
-    fontSize: 12,
-  },
-  safeArea: {
-    flex: 1,
-    minWidth: 0,
-  },
-  flex: {
-    flex: 1,
-    minWidth: 0,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    height: 56,
-    backgroundColor: L.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: L.hairline,
-    gap: 4,
-  },
-  headerButton: {
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: R.md,
-  },
-  crumbs: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  crumbItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  crumb: {
-    color: L.ink2,
-    fontFamily: F.uiMed,
-    fontSize: 13,
-    maxWidth: 140,
-  },
-  content: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    paddingBottom: 32,
-    gap: 14,
-    maxWidth: 720,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  titleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: L.surface,
-    borderWidth: 1,
-    borderColor: L.hairline,
-    borderRadius: R.lg,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  title: {
-    flex: 1,
-    minWidth: 0,
-    color: L.ink,
-    fontFamily: F.uiSemi,
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  titleInput: {
-    padding: 0,
-  },
-  titleDone: {
-    color: L.tertiary,
-    textDecorationLine: 'line-through',
-  },
-  chipRow: {
-    flexWrap: 'wrap',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  chip: {
-    maxWidth: '100%',
-    minHeight: 44,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: L.border,
-    borderRadius: R.md,
-    paddingHorizontal: 12,
-    backgroundColor: L.surface,
-  },
-  chipOn: {
-    backgroundColor: L.selected,
-    borderColor: L.accent,
-  },
-  chipText: {
-    flexShrink: 1,
-    color: L.ink2,
-    fontFamily: F.uiMed,
-    fontSize: 12,
-  },
-  chipTextOn: {
-    color: L.accent,
-  },
-  sectionTitle: {
-    color: L.tertiary,
-    fontFamily: F.uiSemi,
-    fontSize: 11,
-    letterSpacing: 0.6,
-    marginTop: 6,
-  },
-  addRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  input: {
-    flex: 1,
-    minWidth: 0,
-    height: 42,
-    color: L.ink,
-    fontFamily: F.ui,
-    fontSize: 15,
-    backgroundColor: L.surface,
-    borderWidth: 1,
-    borderColor: L.border,
-    borderRadius: R.md,
-    paddingHorizontal: 12,
-  },
-  addButton: {
-    width: 42,
-    height: 42,
-    borderRadius: R.md,
-    backgroundColor: L.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonPressed: {
-    backgroundColor: L.accentPressed,
-  },
-  backHome: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    alignSelf: 'center',
-    height: 40,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: L.border,
-    borderRadius: R.md,
-  },
-  backHomeText: {
-    color: L.ink2,
-    fontFamily: F.uiMed,
-    fontSize: 13,
-  },
-  emptyText: {
-    color: L.tertiary,
-    fontFamily: F.ui,
-    fontSize: 13,
-    textAlign: 'center',
-    paddingVertical: 16,
-  },
-  card: {
-    backgroundColor: L.surface,
-    borderWidth: 1,
-    borderColor: L.hairline,
-    borderRadius: R.lg,
-    overflow: 'hidden',
-  },
-  rowSeparator: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: L.hairline,
-  },
-  taskRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 10,
-    minHeight: 42,
-    paddingVertical: 6,
-  },
-  taskBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  taskTitle: {
-    color: L.ink,
-    fontFamily: F.uiMed,
-    fontSize: 14,
-  },
-  taskDesc: {
-    color: L.tertiary,
-    fontFamily: F.ui,
-    fontSize: 12,
-    marginTop: 1,
-  },
-  descInput: {
-    minHeight: 56,
-    maxHeight: 140,
-    color: L.ink2,
-    fontFamily: F.ui,
-    fontSize: 13,
-    lineHeight: 19,
-    backgroundColor: L.surface,
-    borderWidth: 1,
-    borderColor: L.hairline,
-    borderRadius: R.lg,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  taskMeta: {
-    color: L.tertiary,
-    fontFamily: F.ui,
-    fontSize: 12,
-    marginTop: 3,
-  },
-  pressed: {
-    backgroundColor: L.pressed,
-  },
+  screen: { flex: 1, backgroundColor: L.surface },
+  flex: { flex: 1, minWidth: 0 },
+  content: { width: '100%', maxWidth: 640, alignSelf: 'center', padding: 16, gap: 16, paddingBottom: 24 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
+  title: { flex: 1, minWidth: 0, fontFamily: F.uiSemi, fontSize: 20, lineHeight: 28, color: L.ink, paddingVertical: 8 },
+  done: { color: L.tertiary, textDecorationLine: 'line-through' },
+  note: { minHeight: 64, maxHeight: 160, fontFamily: F.ui, fontSize: 14, lineHeight: 21, color: L.ink2, textAlignVertical: 'top', padding: 10, backgroundColor: L.canvas, borderRadius: R.md },
+  checkRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: L.hairline },
+  itemTitle: { fontFamily: F.ui, fontSize: 14, color: L.ink, paddingVertical: 4 },
+  itemNote: { fontFamily: F.ui, fontSize: 12, color: L.tertiary, paddingBottom: 4 },
+  track: { height: 3, backgroundColor: L.hairline, marginBottom: 8 },
+  progress: { height: 3, backgroundColor: L.accent },
+  hint: { fontFamily: F.ui, fontSize: 12, color: L.tertiary, lineHeight: 18, paddingVertical: 10 },
+  footer: { borderTopWidth: 1, borderTopColor: L.hairline, paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  footnote: { fontFamily: F.ui, fontSize: 12, color: L.tertiary },
+  editInput: { minHeight: 44, borderWidth: 1, borderColor: L.border, borderRadius: R.md, padding: 10, fontFamily: F.ui, color: L.ink, fontSize: 14 },
 });
