@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PRESET_LIMITS, roundMinutes, sanitizePreset } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
+import { confirmAction } from '@/features/ui/dialogs';
 import { F, L, R } from '@/features/ui/theme';
 
 // Sayı alanları yazım sırasında serbest metin tutulur; kaydederken ayrıştırılıp
@@ -80,6 +80,13 @@ export default function PresetEditorScreen() {
       <View style={styles.screen}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <Text style={styles.emptyText}>Önayar bulunamadı.</Text>
+          <Pressable
+            style={({ pressed }) => [styles.backHome, pressed && { opacity: 0.6 }]}
+            onPress={() => router.back()}
+          >
+            <Feather name="chevron-left" size={16} color={L.ink2} />
+            <Text style={styles.backHomeText}>Geri dön</Text>
+          </Pressable>
         </SafeAreaView>
       </View>
     );
@@ -101,17 +108,14 @@ export default function PresetEditorScreen() {
 
   const confirmDelete = () => {
     if (presets.length <= 1) return;
-    Alert.alert('Önayarı sil', `"${preset.name}" silinecek.`, [
-      { text: 'Vazgeç', style: 'cancel' },
-      {
-        text: 'Sil',
-        style: 'destructive',
-        onPress: async () => {
-          await deletePreset(preset.id);
-          router.back();
-        },
+    confirmAction({
+      title: 'Önayarı sil',
+      message: `"${preset.name}" silinecek.`,
+      onConfirm: async () => {
+        await deletePreset(preset.id);
+        router.back();
       },
-    ]);
+    });
   };
 
   return (
@@ -256,7 +260,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 12,
-    maxWidth: 560,
+    maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
   },
@@ -371,6 +375,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: F.uiSemi,
     fontSize: 14,
+  },
+  backHome: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    height: 40,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+  },
+  backHomeText: {
+    color: L.ink2,
+    fontFamily: F.uiMed,
+    fontSize: 13,
   },
   emptyText: {
     color: L.tertiary,

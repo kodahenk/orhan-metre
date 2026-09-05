@@ -12,15 +12,33 @@ import { useFonts } from 'expo-font';
 import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
-import { ProjectsProvider } from '@/features/projects/projects-context';
-import { SessionsProvider } from '@/features/sessions/sessions-context';
-import { SettingsProvider } from '@/features/timer/settings-context';
+import { ProjectsProvider, useProjects } from '@/features/projects/projects-context';
+import { SessionsProvider, useSessions } from '@/features/sessions/sessions-context';
+import { SettingsProvider, useTimerSettings } from '@/features/timer/settings-context';
 import { TimerProvider } from '@/features/timer/timer-context';
+import { LoadingScreen } from '@/features/ui/components';
+import { AppKeyboardProvider } from '@/features/ui/keyboard-provider';
 import { L } from '@/features/ui/theme';
+
+/**
+ * Veri kapısı: üç depo da diskten okunmadan uygulama ağacı monte edilmez.
+ *
+ * Bu kapı olmadan ekranlar varsayılan state ile açılıyordu; form ekranları
+ * ilk render'daki (boş) değeri sabitleyip kaydettiklerinde gerçek veriyi
+ * eziyordu — proje notu boş string ile siliniyor, önayar süreleri
+ * varsayılana dönüyordu. Ayrıca Rapor/Projeler bir an "boş" görünüyordu.
+ */
+function DataGate({ children }: { children: React.ReactNode }) {
+  const { loaded: settingsLoaded } = useTimerSettings();
+  const { loaded: projectsLoaded } = useProjects();
+  const { loaded: sessionsLoaded } = useSessions();
+  if (!settingsLoaded || !projectsLoaded || !sessionsLoaded) return <LoadingScreen />;
+  return <>{children}</>;
+}
 
 export default function RootLayout() {
   // İki font ailesi: arayüz Inter, zamanlayıcı Roboto Mono.
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -29,12 +47,14 @@ export default function RootLayout() {
     RobotoMono_500Medium,
   });
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded && !fontError) return <LoadingScreen />;
 
   return (
+    <AppKeyboardProvider>
     <SettingsProvider>
       <ProjectsProvider>
         <SessionsProvider>
+          <DataGate>
           <TimerProvider>
           <ThemeProvider value={DefaultTheme}>
             {/* Light ekranlarda koyu durum çubuğu simgeleri;
@@ -48,8 +68,10 @@ export default function RootLayout() {
             />
           </ThemeProvider>
           </TimerProvider>
+          </DataGate>
         </SessionsProvider>
       </ProjectsProvider>
     </SettingsProvider>
+    </AppKeyboardProvider>
   );
 }

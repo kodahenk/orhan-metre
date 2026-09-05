@@ -8,8 +8,15 @@ import { useSessions, type WorkSession } from '@/features/sessions/sessions-cont
 import { dateKey } from './format';
 import { hideMiniTimer, showMiniTimer } from './mini-timer';
 import {
+  clearSnapshot,
+  loadSnapshot,
+  saveSnapshot,
+  SNAPSHOT_INTERVAL_MS,
+} from './session-recovery';
+import {
   addNotificationTapListener,
   applyBreatheDebt,
+  breatheRepeatKey,
   cancelAllSessionAlarms,
   prepareNotifications,
   scheduleCycleAlarms,
@@ -21,12 +28,23 @@ import {
   notifyIntervalMs,
   phaseDurationMs,
   PHASE_LABELS,
-  PLANNED_START_STAMP_KEY,
   plannedStartTimestamp,
+  readPlannedStartStamp,
+  writePlannedStartStamp,
   type TimerPhase,
   type TimerPreset,
 } from './settings';
 import { useTimerSettings } from './settings-context';
+
+// Web'de titreşim yok; navigator.vibrate çağrıları (özellikle kullanıcı
+// etkileşimi öncesi) tarayıcı konsoluna hata bastığı için tamamen atlanır.
+const canVibrate = Platform.OS !== 'web';
+const vibrate = (ms: number) => {
+  if (canVibrate) Vibration.vibrate(ms);
+};
+const cancelVibration = () => {
+  if (canVibrate) Vibration.cancel();
+};
 
 /**
  * TUR DÖNGÜSÜ: Odak → Tekrar → Nefes Al → (sonraki tur) → ... sonsuz.
@@ -68,6 +86,8 @@ export type LastSaved = {
   workSeconds: number;
   completedRounds: number;
   status: 'completed' | 'abandoned';
+  /** true: uygulama kapalıyken yarım kalmış oturum açılışta kurtarıldı. */
+  recovered?: boolean;
 };
 
 export function useWorkTimer() {
@@ -137,11 +157,15 @@ export function useWorkTimer() {
   const pendingProjectRef = useRef<string | null>(null);
   const pendingTaskRef = useRef<string | null>(null);
   const tasksRef = useRef(tasks);
+  const projectsRef = useRef(projects);
   const scheduledRef = useRef<ScheduledAlarms>(new Map());
   const alarmBoundaryRef = useRef<number | null>(null);
   const alarmEndsAtRef = useRef(0);
   const alarmVibrateEndsAtRef = useRef(0);
   const alarmStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rescheduleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Uygulama ön planda mı — arka planda mini sayacı geri koymak için. */
+  const appActiveRef = useRef(true);
   // Her durum geçişinde artar; await sonrası bayatlamış devamları geçersiz kılar.
   const epochRef = useRef(0);
 
@@ -157,7 +181,8 @@ export function useWorkTimer() {
 
   useEffect(() => {
     tasksRef.current = tasks;
-  }, [tasks]);
+    projectsRef.current = projects;
+  }, [tasks, projects]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -218,8 +243,14 @@ export function useWorkTimer() {
     [setPendingTask],
   );
 
-  const stopAlarm = useCallback(() => {
-    Vibration.cancel();
+  /**
+   * Alarmı susturur. `silenceBreatheReminders`: yalnızca KULLANICI susturduğunda
+   * (ekrana/bildirime dokunma) true — o zaman Nefes Al'ın kalan dürtüleri de
+   * iptal edilir. Otomatik zaman aşımında false kalır, yoksa 5 sn sonra dürtüler
+   * kendiliğinden silinip özellik işlevsizleşirdi.
+   */
+  const stopAlarm = useCallback((silenceBreatheReminders = false) => {
+    cancelVibration();
     if (alarmStopTimer.current) {
       clearTimeout(alarmStopTimer.current);
       alarmStopTimer.current = null;
@@ -228,9 +259,13 @@ export function useWorkTimer() {
     alarmBoundaryRef.current = null;
     alarmVibrateEndsAtRef.current = 0;
     setAlarmActive(false);
-    // Sınırın kalan tekrarları da susar: Nefes Al'a girişte dokunmak, nefes
-    // boyunca gelecek dürtü bildirimlerini de iptal eder.
-    if (boundary != null) void silenceBoundaryAlarms(scheduledRef.current, boundary);
+    if (boundary != null) {
+      void silenceBoundaryAlarms(scheduledRef.current, boundary);
+      // Nefese giriş sınırı (Tekrar sonu) susturuluyorsa dürtüler de sussun.
+      if (silenceBreatheReminders && boundary % 3 === 1) {
+        void silenceBoundaryAlarms(scheduledRef.current, breatheRepeatKey((boundary - 1) / 3));
+      }
+    }
   }, []);
 
   /** vibrateMs: 5 sn'lik geçiş titreşiminden geriye kalan kısım (0 = titreme). */
@@ -246,12 +281,30 @@ export function useWorkTimer() {
       const channelVibrates = Platform.OS === 'android' && notificationsGrantedRef.current;
       if (vibrateMs > 0 && !channelVibrates) {
         alarmVibrateEndsAtRef.current = Date.now() + vibrateMs;
-        Vibration.vibrate(vibrateMs);
+        vibrate(vibrateMs);
       }
-      alarmStopTimer.current = setTimeout(stopAlarm, windowMs);
+      alarmStopTimer.current = setTimeout(() => stopAlarm(), windowMs);
     },
     [stopAlarm],
   );
+
+  /**
+   * Yürüyen oturumun ilerlemesini diske yazar: süreç arka planda öldürülürse
+   * (sonsuz döngüde oturum tüm günü kapsayabilir) çalışma kaybolmasın.
+   */
+  const persistSnapshot = useCallback(() => {
+    if (!sessionActiveRef.current) return;
+    saveSnapshot({
+      projectId: sessionProjectRef.current,
+      taskId: sessionTaskRef.current,
+      presetId: sessionPresetRef.current,
+      startedAt: sessionStartedAtRef.current,
+      updatedAt: Date.now(),
+      workMs: workMsRef.current,
+      breatheMs: breatheMsRef.current,
+      completedRounds: completedRoundsRef.current,
+    });
+  }, []);
 
   /**
    * Oturumu kayda döker. extraWorkMs/extraBreatheMs: yürüyen fazın
@@ -264,7 +317,10 @@ export function useWorkTimer() {
       const workMs = workMsRef.current + Math.max(0, extraWorkMs);
       const breatheMs = breatheMsRef.current + Math.max(0, extraBreatheMs);
       const workSeconds = Math.round(workMs / 1000);
-      if (workSeconds < MIN_RECORDED_WORK_SECONDS) return; // gürültü filtresi
+      if (workSeconds < MIN_RECORDED_WORK_SECONDS) {
+        clearSnapshot(); // gürültü filtresi: kaydedilmeyen oturumun izi kalmasın
+        return;
+      }
       // Tamamlanmış tur varsa oturum 'completed': odakta yarıda bırakılan SON
       // tur sayılmaz ama ondan öncekiler oturumu terk edilmiş yapmaz.
       const finalStatus = completedRoundsRef.current > 0 ? 'completed' : 'abandoned';
@@ -281,6 +337,7 @@ export function useWorkTimer() {
         status: finalStatus,
       };
       addSession(session);
+      clearSnapshot();
       setLastSaved({
         projectId: session.projectId,
         taskId: session.taskId,
@@ -291,6 +348,33 @@ export function useWorkTimer() {
     },
     [addSession],
   );
+
+  /**
+   * Bildirimleri MEVCUT konumdan zamanlar. Konum parametre olarak alınmaz:
+   * await'ler (izin diyaloğu, toplu iptal) sırasında sayaç tiklemeye devam
+   * eder ve faz geçilmiş olabilir; await öncesi yakalanmış bayat konumla
+   * zamanlamak tüm alarmları kaydırırdı. Konum bu yüzden iptal await'inden
+   * SONRA ref'lerden okunur.
+   */
+  const rescheduleAlarms = useCallback(async (epoch: number) => {
+    await cancelAllSessionAlarms();
+    if (epochRef.current !== epoch) return;
+    if (statusRef.current !== 'running') return; // idle/paused/waiting: sınır yok
+    const scheduled = await scheduleCycleAlarms(
+      timingsRef.current,
+      autoAdvanceRef.current,
+      roundRef.current,
+      phaseRef.current,
+      endsAtRef.current,
+      debtRef.current,
+      workEndReminderMsRef.current,
+    );
+    if (epochRef.current !== epoch) {
+      for (const key of [...scheduled.keys()]) void silenceBoundaryAlarms(scheduled, key);
+      return;
+    }
+    scheduledRef.current = scheduled;
+  }, []);
 
   /**
    * Tik + arka plandan dönüş senkronu: faz zinciri üzerinde ilerlenir.
@@ -351,6 +435,8 @@ export function useWorkTimer() {
         setCompletedRounds(completedRoundsRef.current);
       }
       debtRef.current = debt;
+      // Faz geçişi = muhasebenin değiştiği an; ilerleme hemen diske yazılır.
+      persistSnapshot();
       if (debtApplied > 0) {
         debtAppliedRef.current += debtApplied;
         setBreatheDebtAppliedMs(debtAppliedRef.current);
@@ -358,6 +444,13 @@ export function useWorkTimer() {
       const last = crossed[crossed.length - 1];
       for (const c of crossed.slice(0, -1)) {
         void silenceBoundaryAlarms(scheduledRef.current, c.seq);
+      }
+      // Biten her Nefes Al'ın dürtü bildirimleri (ayrı kovada) susturulur;
+      // pencere kapandıktan sonra panele düşen dürtü kalmasın.
+      for (const c of crossed) {
+        if (c.seq % 3 === 2) {
+          void silenceBoundaryAlarms(scheduledRef.current, breatheRepeatKey((c.seq - 2) / 3));
+        }
       }
       const overshoot = now - last.at;
       if (overshoot < ALARM_VIBRATION_MS) {
@@ -387,23 +480,54 @@ export function useWorkTimer() {
     }
     endsAtRef.current = edge;
     setSecondsLeft(displaySeconds(edge - now));
-  }, [startAlarm]);
+
+    // Döngü sonsuz olduğu için bildirimler ileriye BÜTÇEYLE zamanlanır; pencere
+    // kendiliğinden kaymaz. Yeni tura girildiğinde (otomatik geçiş) pencere
+    // tazelenir, yoksa birkaç tur sonra alarmlar sessizce biterdi.
+    if (crossed.length > 0 && curPhase === 'focus') {
+      // ÖNEMLİ: hemen çağrılırsa cancelAll, az önce düşen geçiş bildirimini
+      // panelden siler ve Android o bildirimin sesini/titreşimini de keser —
+      // yani yeni tur alarmı ~0,25 sn çalıp susardı. Titreşim penceresi
+      // dolduktan sonra zamanlanır.
+      if (rescheduleTimer.current) clearTimeout(rescheduleTimer.current);
+      rescheduleTimer.current = setTimeout(() => {
+        rescheduleTimer.current = null;
+        if (statusRef.current !== 'running') return;
+        void rescheduleAlarms(++epochRef.current).then(() => {
+          // cancelAll mini sayaç bildirimini de sildiği için arka plandaysak
+          // geri konur; yoksa cepteyken her turda kaybolurdu.
+          if (!appActiveRef.current && statusRef.current === 'running') {
+            showMiniTimer(endsAtRef.current, PHASE_LABELS[phaseRef.current]);
+          }
+        });
+      }, ALARM_VIBRATION_MS + 1_000);
+    }
+  }, [startAlarm, rescheduleAlarms, persistSnapshot]);
 
   useEffect(() => {
     if (status !== 'running') return;
     const id = setInterval(syncNow, TICK_MS);
-    return () => clearInterval(id);
-  }, [status, syncNow]);
+    // Faz geçişleri seyrek (dakikalar) olduğundan ilerleme ayrıca düzenli
+    // aralıkla da yazılır; süreç ölürse en fazla bir aralık kadar kayıp olur.
+    const snap = setInterval(persistSnapshot, SNAPSHOT_INTERVAL_MS);
+    return () => {
+      clearInterval(id);
+      clearInterval(snap);
+    };
+  }, [status, syncNow, persistSnapshot]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
+      appActiveRef.current = state === 'active';
       if (state !== 'active') {
-        Vibration.cancel();
+        cancelVibration();
         // Arka plan mini sayacı: yalnızca bir faz fiilen akarken gösterilir.
         // Tikleme native tarafta (endsAt ile) sürer; JS burada durur.
         if (statusRef.current === 'running') {
           showMiniTimer(endsAtRef.current, PHASE_LABELS[phaseRef.current]);
         }
+        // Süreç en çok arka planda öldürülür: çıkarken ilerlemeyi yaz.
+        persistSnapshot();
         return;
       }
       hideMiniTimer();
@@ -414,30 +538,60 @@ export function useWorkTimer() {
           stopAlarm();
         } else {
           const vibrateLeft = alarmVibrateEndsAtRef.current - Date.now();
-          if (vibrateLeft > 0) Vibration.vibrate(vibrateLeft);
+          if (vibrateLeft > 0) vibrate(vibrateLeft);
           if (alarmStopTimer.current) clearTimeout(alarmStopTimer.current);
-          alarmStopTimer.current = setTimeout(stopAlarm, remaining);
+          alarmStopTimer.current = setTimeout(() => stopAlarm(), remaining);
         }
       }
     });
     return () => sub.remove();
-  }, [syncNow, stopAlarm]);
+  }, [syncNow, stopAlarm, persistSnapshot]);
 
   useEffect(() => {
     return addNotificationTapListener(() => {
       syncNow();
-      stopAlarm();
+      stopAlarm(true);
     });
   }, [syncNow, stopAlarm]);
 
   useEffect(() => {
     // Soğuk açılış temizliği: önceki süreçten kalmış alarm bildirimleri ve
     // (süreç ölümünde asılı kalmış olabilecek) mini sayaç bildirimi süpürülür.
-    if (statusRef.current === 'idle') {
-      hideMiniTimer();
-      void cancelAllSessionAlarms();
-    }
-  }, []);
+    if (statusRef.current !== 'idle') return;
+    hideMiniTimer();
+    void cancelAllSessionAlarms();
+
+    // Kurtarma: süreç yürüyen oturumun ortasında öldürülmüşse, son yazılan
+    // ilerleme kayda dönüştürülür. Oturum devam ETTİRİLMEZ — uygulama kapalıyken
+    // turların dönmeye devam ettiğini varsaymak yanlış süre üretirdi.
+    void loadSnapshot().then((snap) => {
+      if (!snap) return;
+      clearSnapshot();
+      const workSeconds = Math.round(snap.workMs / 1000);
+      if (workSeconds < MIN_RECORDED_WORK_SECONDS) return;
+      const recovered: WorkSession = {
+        id: newId(),
+        projectId: snap.projectId,
+        taskId: snap.taskId,
+        presetId: snap.presetId,
+        startedAt: snap.startedAt,
+        endedAt: snap.updatedAt,
+        workSeconds,
+        breakSeconds: Math.round(snap.breatheMs / 1000),
+        completedRounds: snap.completedRounds,
+        status: snap.completedRounds > 0 ? 'completed' : 'abandoned',
+      };
+      addSession(recovered);
+      setLastSaved({
+        projectId: recovered.projectId,
+        taskId: recovered.taskId,
+        workSeconds,
+        completedRounds: recovered.completedRounds,
+        status: recovered.status,
+        recovered: true,
+      });
+    });
+  }, [addSession]);
 
   useEffect(() => {
     if (status !== 'running' && status !== 'waiting') return;
@@ -449,37 +603,11 @@ export function useWorkTimer() {
 
   useEffect(() => {
     return () => {
-      Vibration.cancel();
+      cancelVibration();
       hideMiniTimer();
       if (alarmStopTimer.current) clearTimeout(alarmStopTimer.current);
+      if (rescheduleTimer.current) clearTimeout(rescheduleTimer.current);
     };
-  }, []);
-
-  /**
-   * Bildirimleri MEVCUT konumdan zamanlar. Konum parametre olarak alınmaz:
-   * await'ler (izin diyaloğu, toplu iptal) sırasında sayaç tiklemeye devam
-   * eder ve faz geçilmiş olabilir; await öncesi yakalanmış bayat konumla
-   * zamanlamak tüm alarmları kaydırırdı. Konum bu yüzden iptal await'inden
-   * SONRA ref'lerden okunur.
-   */
-  const rescheduleAlarms = useCallback(async (epoch: number) => {
-    await cancelAllSessionAlarms();
-    if (epochRef.current !== epoch) return;
-    if (statusRef.current !== 'running') return; // idle/paused/waiting: sınır yok
-    const scheduled = await scheduleCycleAlarms(
-      timingsRef.current,
-      autoAdvanceRef.current,
-      roundRef.current,
-      phaseRef.current,
-      endsAtRef.current,
-      debtRef.current,
-      workEndReminderMsRef.current,
-    );
-    if (epochRef.current !== epoch) {
-      for (const key of [...scheduled.keys()]) void silenceBoundaryAlarms(scheduled, key);
-      return;
-    }
-    scheduledRef.current = scheduled;
   }, []);
 
   const start = useCallback(async () => {
@@ -508,14 +636,8 @@ export function useWorkTimer() {
     const plannedStart = settingsRef.current.plannedStartTime;
     if (plannedStart) {
       const today = dateKey(new Date());
-      let stampedDay: string | null = null;
-      try {
-        stampedDay = Storage.getItemSync(PLANNED_START_STAMP_KEY);
-      } catch {}
-      if (stampedDay !== today) {
-        try {
-          Storage.setItemSync(PLANNED_START_STAMP_KEY, today);
-        } catch {}
+      if (readPlannedStartStamp() !== today) {
+        writePlannedStartStamp(today);
         debtRef.current = Math.max(0, Date.now() - plannedStartTimestamp(plannedStart));
       }
     }
@@ -531,8 +653,18 @@ export function useWorkTimer() {
     const pendingTask = pendingTaskRef.current
       ? tasksRef.current.find((t) => t.id === pendingTaskRef.current)
       : undefined;
+    // Görev, seçili projeye VEYA onun bir alt projesine ait olabilir: seçici
+    // alt proje görevlerini de listeliyor (raporlar da alt projeleri üst
+    // projeye topluyor). Kapsam dışıysa görevsiz başlanır.
+    const scopeIds = new Set<string>();
+    if (pendingProjectRef.current) {
+      scopeIds.add(pendingProjectRef.current);
+      for (const pr of projectsRef.current) {
+        if (pr.parentId === pendingProjectRef.current) scopeIds.add(pr.id);
+      }
+    }
     sessionTaskRef.current =
-      pendingTask && !pendingTask.done && pendingTask.projectId === pendingProjectRef.current
+      pendingTask && !pendingTask.done && scopeIds.has(pendingTask.projectId)
         ? pendingTask.id
         : null;
     setSessionTaskId(sessionTaskRef.current);
@@ -553,13 +685,14 @@ export function useWorkTimer() {
     setPhaseState('focus');
     setRoundState(0);
     setSecondsLeft(displaySeconds(phaseDurRef.current));
+    persistSnapshot();
 
     const granted = await prepareNotifications().catch(() => false);
     notificationsGrantedRef.current = granted;
     setNotificationsGranted(granted);
     if (epochRef.current !== epoch) return;
     await rescheduleAlarms(epoch);
-  }, [stopAlarm, rescheduleAlarms]);
+  }, [stopAlarm, rescheduleAlarms, persistSnapshot]);
 
   /**
    * Sonraki tura geç: Nefes Al sırasında (erken bitir) ya da manuel moddaki
@@ -575,7 +708,7 @@ export function useWorkTimer() {
       // Nefes erken bitiyor: geçen kısmı say, kalan dürtü bildirimlerini sustur.
       const elapsed = phaseDurRef.current - Math.max(0, endsAtRef.current - Date.now());
       breatheMsRef.current += Math.max(0, elapsed);
-      void silenceBoundaryAlarms(scheduledRef.current, phaseSeq(roundRef.current, 'review'));
+      void silenceBoundaryAlarms(scheduledRef.current, breatheRepeatKey(roundRef.current));
     }
     // 'waiting' durumunda nefes zaten tamamlandı ve syncNow'da sayıldı.
     const nextRound = roundRef.current + 1;
@@ -698,6 +831,8 @@ export function useWorkTimer() {
     pause,
     resume,
     finish,
-    acknowledgeAlarm: stopAlarm,
+    /** Silinen kaydın özet satırı ekranda kalmasın diye. */
+    clearLastSaved: () => setLastSaved(null),
+    acknowledgeAlarm: () => stopAlarm(true),
   };
 }

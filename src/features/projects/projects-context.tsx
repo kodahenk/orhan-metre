@@ -19,7 +19,8 @@ import { PROJECT_COLORS } from '@/features/ui/theme';
 export type GoalPeriod = 'weekly' | 'monthly' | 'yearly' | 'total';
 
 export type Goal = {
-  metric: 'hours' | 'sessions';
+  /** 'rounds': tamamlanan TUR sayısı (eski kayıtlardaki 'sessions' buna eşlenir). */
+  metric: 'hours' | 'rounds';
   target: number;
   period: GoalPeriod;
 };
@@ -95,14 +96,15 @@ const DEFAULT_PROJECTS: Project[] = [
 function sanitizeGoal(raw: unknown): Goal | null {
   const g = raw as Partial<Goal> | null;
   if (!g || typeof g !== 'object') return null;
-  if (g.metric !== 'hours' && g.metric !== 'sessions') return null;
+  const metric = g.metric === 'hours' ? 'hours' : g.metric === 'rounds' || g.metric === 'sessions' ? 'rounds' : null;
+  if (!metric) return null;
   const target = Number(g.target);
   if (!Number.isFinite(target) || target <= 0) return null;
   const period: GoalPeriod =
     g.period === 'weekly' || g.period === 'monthly' || g.period === 'yearly' || g.period === 'total'
       ? g.period
       : 'weekly';
-  return { metric: g.metric, target, period };
+  return { metric, target, period };
 }
 
 function sanitizeProjects(raw: unknown): Project[] {
@@ -215,6 +217,14 @@ type ProjectsContextValue = {
   setProjectNote: (id: string, noteBody: string) => void;
   setProjectGoal: (id: string, goal: Goal | null) => void;
   setProjectPreset: (id: string, presetId: string | null) => void;
+  /** Proje rengini değiştirir (PROJECT_COLORS içinden). */
+  setProjectColor: (id: string, color: string) => void;
+  /** Projeyi kardeşleri arasında bir sıra yukarı/aşağı taşır. */
+  moveProject: (id: string, direction: -1 | 1) => void;
+  /** Görevi başka projeye (ve istenirse başka üst göreve) taşır; alt ağacı da taşınır. */
+  moveTask: (taskId: string, projectId: string, parentTaskId?: string | null) => void;
+  /** Görevi kardeşleri arasında bir sıra yukarı/aşağı taşır. */
+  moveTaskOrder: (taskId: string, direction: -1 | 1) => void;
   addTask: (
     projectId: string,
     parentTaskId: string | null,
@@ -339,6 +349,9 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     ),
     deleteProject: useCallback(
       (id) => {
+        // Son proje korunur: silinirse sanitize açılışta "Genel"i diriltir ve
+        // kullanıcı sildiği projenin geri geldiğini görürdü.
+        if (stateRef.current.projects.length <= 1) return;
         // Alt projeler ve tüm görevleri de silinir; oturum kayıtları kalır
         // (Rapor'da "Silinmiş proje" olarak görünür).
         const doomed = new Set([id]);
@@ -358,6 +371,80 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     setProjectGoal: useCallback(
       (id, goal) => mutateProjects((prev) => prev.map((p) => (p.id === id ? { ...p, goal } : p))),
       [mutateProjects],
+    ),
+    setProjectColor: useCallback(
+      (id, color) => mutateProjects((prev) => prev.map((p) => (p.id === id ? { ...p, color } : p))),
+      [mutateProjects],
+    ),
+    moveProject: useCallback(
+      (id, direction) =>
+        mutateProjects((prev) => {
+          const target = prev.find((p) => p.id === id);
+          if (!target) return prev;
+          // Yalnız aynı düzeydeki kardeşler arasında yer değiştirir.
+          const siblings = prev
+            .filter((p) => p.parentId === target.parentId)
+            .sort((a, b) => a.orderIndex - b.orderIndex);
+          const i = siblings.findIndex((p) => p.id === id);
+          const j = i + direction;
+          if (i < 0 || j < 0 || j >= siblings.length) return prev;
+          const a = siblings[i];
+          const b = siblings[j];
+          return prev.map((p) =>
+            p.id === a.id
+              ? { ...p, orderIndex: b.orderIndex }
+              : p.id === b.id
+                ? { ...p, orderIndex: a.orderIndex }
+                : p,
+          );
+        }),
+      [mutateProjects],
+    ),
+    moveTask: useCallback(
+      (taskId, projectId, parentTaskId) =>
+        mutateTasks((prev) => {
+          // Alt ağaç da taşınır, yoksa görevler farklı projelere dağılırdı.
+          const subtree = new Set([taskId]);
+          let grew = true;
+          while (grew) {
+            grew = false;
+            for (const t of prev) {
+              if (t.parentTaskId && subtree.has(t.parentTaskId) && !subtree.has(t.id)) {
+                subtree.add(t.id);
+                grew = true;
+              }
+            }
+          }
+          return prev.map((t) => {
+            if (!subtree.has(t.id)) return t;
+            if (t.id !== taskId) return { ...t, projectId };
+            return { ...t, projectId, parentTaskId: parentTaskId ?? null };
+          });
+        }),
+      [mutateTasks],
+    ),
+    moveTaskOrder: useCallback(
+      (taskId, direction) =>
+        mutateTasks((prev) => {
+          const target = prev.find((t) => t.id === taskId);
+          if (!target) return prev;
+          const siblings = prev
+            .filter((t) => t.projectId === target.projectId && t.parentTaskId === target.parentTaskId)
+            .sort((a, b) => a.orderIndex - b.orderIndex);
+          const i = siblings.findIndex((t) => t.id === taskId);
+          const j = i + direction;
+          if (i < 0 || j < 0 || j >= siblings.length) return prev;
+          const a = siblings[i];
+          const b = siblings[j];
+          return prev.map((t) =>
+            t.id === a.id
+              ? { ...t, orderIndex: b.orderIndex }
+              : t.id === b.id
+                ? { ...t, orderIndex: a.orderIndex }
+                : t,
+          );
+        }),
+      [mutateTasks],
     ),
     setProjectPreset: useCallback(
       (id, presetId) =>

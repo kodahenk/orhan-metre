@@ -1,30 +1,20 @@
-/**
- * Tasarım sistemi (Geist türevi, light-first):
- * - Uygulamanın tamamı LIGHT: kağıt dokulu #FAFAFA zemin, #FFFFFF yüzeyler,
- *   gölge YOK — ayrım her zaman 1px hairline kenarlıkla.
- * - Tek vurgu rengi (#0070F3) tüm etkileşimi taşır; proje renkleri arayüzle yarışmaz.
- * - Köşe yarıçapları minimal: 3 / 4 / 6dp. Hap (pill) yok.
- * - YALNIZCA tam ekran zamanlayıcı AMOLED siyah kalır (D paleti).
- * - İki font ailesi: arayüz Inter, zamanlayıcı rakamları Roboto Mono.
- */
-
 /** Light palet — tüm normal ekranlar. */
 export const L = {
-  canvas: '#FAFAFA',
+  canvas: '#F5F7FB',
   surface: '#FFFFFF',
-  hairline: '#EBEBEB',
-  border: '#E6E6E6',
+  hairline: '#E5EAF2',
+  border: '#DCE3ED',
   borderActive: '#C9C9C9',
   pressed: '#F2F2F2',
   selected: '#F0F7FF',
-  ink: '#171717',
-  ink2: '#4D4D4D',
-  muted: '#4D4D4D', // ink2 ile ayni — rampa disina cikilmaz,
-  tertiary: '#8F8F8F',
-  accent: '#0070F3',
-  accentPressed: '#0761D1',
+  ink: '#17243B',
+  ink2: '#526078',
+  muted: '#526078', // ink2 ile ayni — rampa disina cikilmaz,
+  tertiary: '#68768C',
+  accent: '#315FE9',
+  accentPressed: '#254CC4',
   accentSoft: '#D3E5FF',
-  success: '#28A948',
+  success: '#18804B',
   danger: '#EE0000',
   dangerSoft: '#F7D4D6',
   warning: '#B45309',
@@ -48,11 +38,11 @@ export const D = {
   clock: '#B6BBC2',
 } as const;
 
-/** Köşe yarıçapı token'ları — başka değer kullanılmaz. */
+/** Ortak kontrol ve kart köşe yarıçapları. */
 export const R = {
-  sm: 3, // onay kutuları
-  md: 4, // butonlar, girdiler, segmentler, çipler, takvim hücreleri
-  lg: 6, // kartlar
+  sm: 6, // onay kutuları
+  md: 10, // butonlar, girdiler, segmentler, çipler, takvim hücreleri
+  lg: 16, // kartlar
 } as const;
 
 export const F = {

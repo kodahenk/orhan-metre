@@ -86,7 +86,41 @@ export function plannedStartTimestamp(hhmm: string, now = new Date()): number {
  * damgasız günde hesaplanır; damga borç doğsun doğmasın basılır (erken
  * başlangıç dahil) — aynı gün sonraki seanslar "geç" sayılmaz.
  */
-export const PLANNED_START_STAMP_KEY = 'planned-start-last-day';
+const PLANNED_START_STAMP_KEY = 'planned-start-last-day';
+
+// Damga okuma/yazma, motorun start() akışında SENKRON olmak zorunda (guard
+// senkron kalmalı, çift-tık yarışı açılmamalı). Senkron kv API'si web'de
+// SharedArrayBuffer'a dayanır ve COOP/COEP başlıkları yoksa kullanılamaz;
+// o durumda bellek önbelleğine + async yazmaya düşülür. Önbellek açılışta
+// async okumayla doldurulur, böylece web'de de 'günün ilk seansı' doğru
+// belirlenir (aksi halde her başlatma geç sayılıp borç üretirdi).
+let stampCache: string | null = null;
+let stampCacheReady = false;
+
+void Storage.getItem(PLANNED_START_STAMP_KEY)
+  .then((v) => {
+    if (!stampCacheReady) stampCache = v;
+    stampCacheReady = true;
+  })
+  .catch(() => {});
+
+export function readPlannedStartStamp(): string | null {
+  try {
+    return Storage.getItemSync(PLANNED_START_STAMP_KEY);
+  } catch {
+    return stampCache;
+  }
+}
+
+export function writePlannedStartStamp(day: string): void {
+  stampCache = day;
+  stampCacheReady = true;
+  try {
+    Storage.setItemSync(PLANNED_START_STAMP_KEY, day);
+  } catch {
+    void Storage.setItem(PLANNED_START_STAMP_KEY, day).catch(() => {});
+  }
+}
 
 /** İleriye dönük zamanlanacak azami bildirim (Android alarm bütçesi). */
 export const MAX_SCHEDULED_NOTIFICATIONS = 40;
@@ -289,9 +323,7 @@ export async function saveSettings(settings: TimerSettings): Promise<void> {
   // geçmişse damga bugüne basılır → gecikme borcu yarından itibaren işler;
   // saatler sonra açılan seansa "hayalet borç" yazılmaz.
   if (settings.plannedStartTime && plannedStartTimestamp(settings.plannedStartTime) < Date.now()) {
-    try {
-      Storage.setItemSync(PLANNED_START_STAMP_KEY, dateKey(new Date()));
-    } catch {}
+    writePlannedStartStamp(dateKey(new Date()));
   }
 }
 

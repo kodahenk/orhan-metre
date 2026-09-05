@@ -2,13 +2,18 @@ import { Feather } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { StyleSheet, type ColorValue } from 'react-native';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { F, L } from '@/features/ui/theme';
 
 function tabIcon(name: keyof typeof Feather.glyphMap) {
-  return ({ color }: { color: ColorValue }) => <Feather name={name} size={23} color={color} />;
+  return function TabIcon({ color }: { color: ColorValue }) {
+    return <Feather name={name} size={22} color={color} />;
+  };
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       initialRouteName="index"
@@ -19,8 +24,9 @@ export default function TabsLayout() {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: L.hairline,
           elevation: 0,
-          height: 60,
-          paddingTop: 6,
+          height: 66 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 10,
         },
         tabBarActiveTintColor: L.accent,
         tabBarInactiveTintColor: L.tertiary,
@@ -46,7 +52,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="reports"
-        options={{ title: 'Rapor', tabBarIcon: tabIcon('bar-chart-2') }}
+        options={{ title: 'Raporlar', tabBarIcon: tabIcon('bar-chart-2') }}
       />
       <Tabs.Screen
         name="settings"

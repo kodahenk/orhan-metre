@@ -17,6 +17,7 @@ import {
   miniTimerSupported,
   requestOverlayPermission,
 } from '@/features/timer/mini-timer';
+import { notificationsSupported, prepareNotifications } from '@/features/timer/notifications';
 
 import {
   DISPLAY_SIZE_LABELS,
@@ -26,7 +27,7 @@ import {
   type TimerDisplaySize,
 } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
-import { ScreenHeader } from '@/features/ui/components';
+import { ScreenIntro, ScreenHeader } from '@/features/ui/components';
 import { D, F, L, R } from '@/features/ui/theme';
 
 export default function SettingsScreen() {
@@ -39,6 +40,8 @@ export default function SettingsScreen() {
   const [minBreathe, setMinBreathe] = useState(String(settings.minBreatheMinutes));
   const [display, setDisplay] = useState(settings.display);
   const [overlayGranted, setOverlayGranted] = useState(hasOverlayPermission);
+  // Bildirim izni: alarmların arka planda çalışmasının ön koşulu.
+  const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
   const [activePresetId, setActivePresetId] = useState(settings.activePresetId);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -47,14 +50,16 @@ export default function SettingsScreen() {
   // Ayarlar başka yerde değişirse VEYA diskten geç yüklenirse formun TÜM
   // alanları tazelenir. Yalnızca activePresetId tazelense, soğuk açılışta
   // varsayılanlarla dolan form Kaydet'te gerçek tercihleri sessizce ezerdi.
-  useEffect(() => {
+  const [previousSettings, setPreviousSettings] = useState(settings);
+  if (previousSettings !== settings) {
+    setPreviousSettings(settings);
     setActivePresetId(settings.activePresetId);
     setAutoAdvance(settings.autoAdvance);
     setWorkEndReminder(settings.workEndReminderMinutes);
     setPlannedStart(settings.plannedStartTime ?? '');
     setMinBreathe(String(settings.minBreatheMinutes));
     setDisplay(settings.display);
-  }, [settings]);
+  }
 
   useEffect(() => {
     return () => {
@@ -62,7 +67,7 @@ export default function SettingsScreen() {
     };
   }, []);
 
-  // Sistem ayarlarından dönüşte overlay izin durumunu tazele.
+  // Sistem ayarlarından dönüşte izin durumlarını tazele.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') setOverlayGranted(hasOverlayPermission());
@@ -101,8 +106,9 @@ export default function SettingsScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScreenHeader title="Ayarlar" />
+        <ScreenHeader title="Ayarlar" subtitle="Sana uyum sağlayan bir çalışma ritmi" />
         <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+          <ScreenIntro eyebrow="TERCİHLERİN" title="Kendi ritmini bul." description="Odak sürelerini, molalarını ve bildirimlerini çalışma alışkanlığına göre düzenle." />
           {/* Önayarlar */}
           <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.3}>
             SAYAÇ ÖNAYARLARI
@@ -164,8 +170,8 @@ export default function SettingsScreen() {
             {[
               {
                 value: false,
-                title: "Devam'a basınca",
-                desc: 'Nefes Al süresi dolunca bekler; sonraki tur Devam ile başlar.',
+                title: 'Elle geçiş',
+                desc: "Nefes Al süresi dolunca bekler; sonraki tur 'Sonraki tur' ile başlar.",
               },
               {
                 value: true,
@@ -204,6 +210,42 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
           </View>
+
+          {/* Bildirim izni — alarmlar arka planda bu izinle çalar */}
+          {notificationsSupported && (
+            <>
+              <Text
+                style={[styles.sectionTitle, styles.sectionSpacing]}
+                maxFontSizeMultiplier={1.3}
+              >
+                BİLDİRİMLER
+              </Text>
+              <View style={styles.card}>
+                <Pressable
+                  style={({ pressed }) => [styles.option, pressed && styles.rowPressed]}
+                  onPress={async () => setNotifGranted(await prepareNotifications().catch(() => false))}
+                >
+                  <Feather
+                    name={notifGranted === true ? 'check-circle' : 'circle'}
+                    size={18}
+                    color={notifGranted === true ? L.success : L.borderActive}
+                  />
+                  <View style={styles.flex}>
+                    <Text style={styles.optionTitle} maxFontSizeMultiplier={1.3}>
+                      Bildirim izni
+                    </Text>
+                    <Text style={styles.optionDesc} maxFontSizeMultiplier={1.3}>
+                      {notifGranted === true
+                        ? 'Verildi — faz alarmları ve Nefes Al dürtüleri çalışır'
+                        : notifGranted === false
+                          ? 'Reddedildi — sistem ayarlarından açman gerekir'
+                          : 'Durumu kontrol etmek / izin vermek için dokun'}
+                    </Text>
+                  </View>
+                </Pressable>
+              </View>
+            </>
+          )}
 
           {/* Arka plan mini sayaç (yalnızca Android development build) */}
           {miniTimerSupported && (
@@ -244,7 +286,7 @@ export default function SettingsScreen() {
             </>
           )}
 
-          {/* Planlı başlangıç + mola borcu */}
+          {/* Planlı başlangıç + nefes borcu */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
             PLANLI BAŞLANGIÇ
           </Text>
@@ -318,8 +360,8 @@ export default function SettingsScreen() {
             TAM EKRAN GÖRÜNÜMÜ
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-            Boyut, siyah (AMOLED) tam ekran zamanlayıcıya uygulanır. Renk otomatiktir:
-            çalışmada gri, molada sarı.
+            Boyut hem ana ekranda hem tam ekran zamanlayıcıda geçerlidir. Renk otomatiktir:
+            Odak gri, Tekrar mavi, Nefes Al sarı.
           </Text>
           <View style={styles.previewBox}>
             <Text
@@ -399,7 +441,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 48,
     gap: 12,
-    maxWidth: 560,
+    maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
   },

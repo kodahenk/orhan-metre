@@ -9,7 +9,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  useAnimatedValue,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -19,6 +18,13 @@ import { formatClock, formatDate, formatTime } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE, PHASE_LABELS, PHASE_ORDER } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
+import {
+  NO_PROJECT_KEY,
+  NO_TASK_KEY,
+  useSelectionPickers,
+} from '@/features/timer/use-selection-pickers';
+import { PickerSheet } from '@/features/ui/components';
+import { confirmAction } from '@/features/ui/dialogs';
 import { D, F, R } from '@/features/ui/theme';
 
 type TimerButtonProps = {
@@ -59,6 +65,10 @@ export default function FullscreenTimerScreen() {
   const timer = useTimer();
   const { settings } = useTimerSettings();
   const { projects, tasks } = useProjects();
+  const { projectOptions, taskOptions, pendingProject, pendingTask, projectTasks, selectProject, selectTask } =
+    useSelectionPickers();
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [taskPickerOpen, setTaskPickerOpen] = useState(false);
   const sessionProject = timer.sessionProjectId
     ? projects.find((p) => p.id === timer.sessionProjectId)
     : null;
@@ -116,10 +126,13 @@ export default function FullscreenTimerScreen() {
 
   const [chromeVisible, setChromeVisible] = useState(true);
   const [revealNonce, setRevealNonce] = useState(0);
-  const chromeOpacity = useAnimatedValue(1);
-  const dimOpacity = useAnimatedValue(1);
-  const shiftX = useAnimatedValue(0);
-  const shiftY = useAnimatedValue(0);
+  // NOT: react-native-web 'useAnimatedValue' export etmiyor; kullanılırsa web'de
+  // ekran komple çöküyor. Taşınabilir karşılığı: useState başlatıcısıyla bir kez
+  // kurulan Animated.Value (useRef().current render sırasında ref okuması sayılır).
+  const [chromeOpacity] = useState(() => new Animated.Value(1));
+  const [dimOpacity] = useState(() => new Animated.Value(1));
+  const [shiftX] = useState(() => new Animated.Value(0));
+  const [shiftY] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     Animated.timing(chromeOpacity, {
@@ -168,16 +181,13 @@ export default function FullscreenTimerScreen() {
   }, [running, chromeVisible, revealNonce, timer.alarmActive]);
 
   // Sayaç durunca (bekleme dahil) ve faz değişince arayüz görünür olsun.
-  useEffect(() => {
-    if (!running) setChromeVisible(true);
-  }, [running]);
-  useEffect(() => {
-    if (!idle) {
-      setChromeVisible(true);
-      setRevealNonce((n) => n + 1);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timer.phase, timer.round]);
+  const chromeStateKey = `${timer.status}:${timer.phase}:${timer.round}`;
+  const [previousChromeState, setPreviousChromeState] = useState(chromeStateKey);
+  if (previousChromeState !== chromeStateKey) {
+    setPreviousChromeState(chromeStateKey);
+    setChromeVisible(true);
+    setRevealNonce((n) => n + 1);
+  }
 
   const onScreenPress = useCallback(() => {
     if (timer.alarmActive) {
@@ -192,7 +202,19 @@ export default function FullscreenTimerScreen() {
       setChromeVisible((v) => !v);
       setRevealNonce((n) => n + 1);
     }
-  }, [timer.alarmActive, timer.acknowledgeAlarm, running]);
+  }, [timer, running]);
+
+  // Bitir geri alınamaz; ana ekranla aynı onay burada da sorulur.
+  const confirmFinish = () =>
+    confirmAction({
+      title: 'Çalışmayı bitir',
+      message:
+        timer.phase === 'focus' && !idle
+          ? `Odak fazındasın: bu tur sayılmayacak. ${timer.completedRounds} tamamlanmış tur kaydedilecek.`
+          : `${timer.completedRounds} tur kaydedilecek.`,
+      confirmLabel: 'Bitir',
+      onConfirm: timer.finish,
+    });
 
   const topLabel = (() => {
     if (idle) return 'Hazır';
@@ -327,7 +349,35 @@ export default function FullscreenTimerScreen() {
           </View>
         )}
 
-        {idle && <TimerButton icon="play" label="Başlat" onPress={timer.start} primary />}
+        {/* Boşta proje + görev seçimi: tam ekrandan da başlatılabildiği için
+            seçim buraya da konur, yoksa bayat seçimle oturum açılırdı. */}
+        {idle && (
+          <>
+            <View style={styles.chipRow}>
+              <Pressable
+                style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                onPress={() => setProjectPickerOpen(true)}
+              >
+                <Feather name="folder" size={14} color={D.text2} />
+                <Text style={styles.chipText} maxFontSizeMultiplier={1.2}>
+                  {pendingProject ? pendingProject.name : 'Projesiz'}
+                </Text>
+              </Pressable>
+              {pendingProject && projectTasks.length > 0 && (
+                <Pressable
+                  style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                  onPress={() => setTaskPickerOpen(true)}
+                >
+                  <Feather name="check-square" size={14} color={D.text2} />
+                  <Text style={styles.chipText} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+                    {pendingTask ? pendingTask.title : 'Görevsiz'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+            <TimerButton icon="play" label="Başlat" onPress={timer.start} primary />
+          </>
+        )}
 
         {/* Nefes Al'da otomatik geçiş bilgisi */}
         {running && timer.phase === 'breathe' && !timer.alarmActive && timer.autoAdvance && (
@@ -349,10 +399,27 @@ export default function FullscreenTimerScreen() {
             {timer.status === 'paused' && (
               <TimerButton icon="play" label="Devam" onPress={timer.resume} primary />
             )}
-            <TimerButton icon="square" label="Bitir" onPress={timer.finish} />
+            <TimerButton icon="square" label="Bitir" onPress={confirmFinish} />
           </View>
         )}
       </Animated.View>
+
+      <PickerSheet
+        visible={projectPickerOpen}
+        title="Proje seç"
+        options={projectOptions}
+        selectedKey={timer.pendingProjectId ?? NO_PROJECT_KEY}
+        onSelect={selectProject}
+        onClose={() => setProjectPickerOpen(false)}
+      />
+      <PickerSheet
+        visible={taskPickerOpen}
+        title="Görev seç"
+        options={taskOptions}
+        selectedKey={pendingTask?.id ?? NO_TASK_KEY}
+        onSelect={selectTask}
+        onClose={() => setTaskPickerOpen(false)}
+      />
     </Pressable>
   );
 }
@@ -483,6 +550,30 @@ const styles = StyleSheet.create({
     color: D.amber,
     fontFamily: F.mono,
     fontSize: 13,
+    letterSpacing: 1,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 36,
+    maxWidth: 220,
+    paddingHorizontal: 14,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: D.border,
+  },
+  chipText: {
+    color: D.text2,
+    fontFamily: F.mono,
+    fontSize: 12,
     letterSpacing: 1,
   },
   buttonRow: {

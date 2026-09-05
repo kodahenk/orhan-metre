@@ -99,13 +99,22 @@ function boundaryContent(
       title: 'Nefes bitti',
       body: autoAdvance
         ? `${nextRound}. tur başlıyor · Odak ${fmtMinutes(nextDurationMs)} dk`
-        : `${nextRound}. tur hazır — başlatmak için Devam'a bas`,
+        : `${nextRound}. tur hazır — 'Sonraki tur'a bas`,
       sound: 'default' as const,
     };
   }
   return {
     title,
     body: `Sıradaki: ${PHASE_LABELS[next]} · ${fmtMinutes(nextDurationMs)} dk`,
+    sound: 'default' as const,
+  };
+}
+
+/** Nefes Al penceresi boyunca gelen dürtü: kalan süreyi söyler. */
+function breatheReminderContent(remainingMs: number) {
+  return {
+    title: 'Nefes Al',
+    body: `${fmtMinutes(Math.max(0, remainingMs))} dk kaldı.`,
     sound: 'default' as const,
   };
 }
@@ -125,6 +134,14 @@ function preEndContent(phase: TimerPhase, preEndMs: number) {
  * bildirim kimlikleri. Sonsuz döngüde de benzersiz ve artan kalır.
  */
 export type ScheduledAlarms = Map<number, string[]>;
+
+/**
+ * Nefes Al dürtü bildirimleri, faz GEÇİŞ alarmından ayrı bir anahtarda
+ * tutulur (negatif uzay, sınır anahtarlarıyla çakışmaz). Geçiş alarmı ~5 sn
+ * sonra kendiliğinden susarken o sınırın tüm kimlikleri iptal edildiği için,
+ * aynı anahtarda dursalardı nefes boyunca gelecek dürtüler de silinirdi.
+ */
+export const breatheRepeatKey = (round: number) => -(round + 1);
 
 export type CycleTimings = {
   focusMs: number;
@@ -201,11 +218,7 @@ export async function scheduleCycleAlarms(
         Array.from({ length: count }, (_, k) =>
           api
             .scheduleNotificationAsync({
-              content: {
-                title: 'Nefes Al',
-                body: `${fmtMinutes(remaining - k * timings.notifyMs)} dk kaldı.`,
-                sound: 'default' as const,
-              },
+              content: breatheReminderContent(remaining - k * timings.notifyMs),
               trigger: {
                 type: api.SchedulableTriggerInputTypes.DATE,
                 date: first + k * timings.notifyMs,
@@ -216,7 +229,7 @@ export async function scheduleCycleAlarms(
         ),
       );
       const list = ids.filter((id): id is string => id != null);
-      if (list.length > 0) scheduled.set(seqOf(round, 'review'), list);
+      if (list.length > 0) scheduled.set(breatheRepeatKey(round), list);
       budget -= count;
     }
   }
@@ -255,7 +268,8 @@ export async function scheduleCycleAlarms(
       Array.from({ length: count }, (_, k) =>
         api
           .scheduleNotificationAsync({
-            content,
+            // k=0 geçiş bildirimi; k>=1 nefes dürtüsü (kalan süreyi yazar).
+            content: k === 0 ? content : breatheReminderContent(nextDurationMs - k * timings.notifyMs),
             trigger: {
               type: api.SchedulableTriggerInputTypes.DATE,
               date: at + k * timings.notifyMs,
@@ -267,7 +281,18 @@ export async function scheduleCycleAlarms(
           .catch(() => null),
       ),
     );
-    for (const id of scheduledIds) if (id) ids.push(id);
+    // k=0 geçiş bildirimi (titreşimli) sınır anahtarına; k>=1 nefes dürtüleri
+    // ayrı anahtara — geçiş alarmı sustuğunda dürtüler hayatta kalsın.
+    const repeatIds: string[] = [];
+    scheduledIds.forEach((id, k) => {
+      if (!id) return;
+      if (k === 0) ids.push(id);
+      else repeatIds.push(id);
+    });
+    if (repeatIds.length > 0) {
+      const key = breatheRepeatKey(round);
+      scheduled.set(key, [...(scheduled.get(key) ?? []), ...repeatIds]);
+    }
     budget -= count;
 
     // Bitiş hatırlatıcısı: yalnızca Odak/Tekrar fazları için, o fazın

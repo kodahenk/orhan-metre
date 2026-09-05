@@ -60,6 +60,10 @@ type SessionsContextValue = {
   sessions: WorkSession[];
   loaded: boolean;
   addSession: (session: WorkSession) => void;
+  /** Yanlış/kazara kaydı siler (ör. "Bitir"e basmayı unutup gece boyu dönen tur). */
+  deleteSession: (id: string) => void;
+  /** Kaydı düzeltir: yanlış projeye/göreve yazılan oturum sonradan taşınabilir. */
+  updateSession: (id: string, patch: Partial<Pick<WorkSession, 'projectId' | 'taskId'>>) => void;
 };
 
 const SessionsContext = createContext<SessionsContextValue | null>(null);
@@ -96,8 +100,27 @@ export function SessionsProvider({ children }: { children: ReactNode }) {
     void Storage.setItem(SESSIONS_KEY, JSON.stringify(next)).catch(() => {});
   }, []);
 
+  const deleteSession = useCallback((id: string) => {
+    const next = sessionsRef.current.filter((s) => s.id !== id);
+    sessionsRef.current = next;
+    setSessions(next);
+    void Storage.setItem(SESSIONS_KEY, JSON.stringify(next)).catch(() => {});
+  }, []);
+
+  const updateSession = useCallback(
+    (id: string, patch: Partial<Pick<WorkSession, 'projectId' | 'taskId'>>) => {
+      const next = sessionsRef.current.map((s) => (s.id === id ? { ...s, ...patch } : s));
+      sessionsRef.current = next;
+      setSessions(next);
+      void Storage.setItem(SESSIONS_KEY, JSON.stringify(next)).catch(() => {});
+    },
+    [],
+  );
+
   return (
-    <SessionsContext.Provider value={{ sessions, loaded, addSession }}>
+    <SessionsContext.Provider
+      value={{ sessions, loaded, addSession, deleteSession, updateSession }}
+    >
       {children}
     </SessionsContext.Provider>
   );

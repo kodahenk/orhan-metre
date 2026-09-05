@@ -1,11 +1,17 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GOAL_PERIOD_LABELS, useProjects, type Project } from '@/features/projects/projects-context';
+import {
+  GOAL_PERIOD_LABELS,
+  taskPathLabel,
+  useProjects,
+  type Project,
+} from '@/features/projects/projects-context';
 import { useSessions, type WorkSession } from '@/features/sessions/sessions-context';
+import { useTimer } from '@/features/timer/timer-context';
 import {
   addDays,
   dateKey,
@@ -18,8 +24,16 @@ import {
   WEEKDAYS,
   WEEKDAYS_SHORT,
 } from '@/features/timer/format';
-import { useTimerSettings } from '@/features/timer/settings-context';
-import { ScreenHeader } from '@/features/ui/components';
+import {
+  EmptyState,
+  Button,
+  ScreenIntro,
+  HeaderIconButton,
+  PickerSheet,
+  ScreenHeader,
+  type PickerOption,
+} from '@/features/ui/components';
+import { confirmAction } from '@/features/ui/dialogs';
 import { F, L, R } from '@/features/ui/theme';
 
 const CHART_HEIGHT = 120;
@@ -27,13 +41,17 @@ const CHART_HEIGHT = 120;
 function sumWork(sessions: WorkSession[], from: number, to = Infinity) {
   let seconds = 0;
   let count = 0;
+  let rounds = 0;
+  let breatheSeconds = 0;
   for (const s of sessions) {
     if (s.startedAt >= from && s.startedAt < to) {
       seconds += s.workSeconds;
       count += 1;
+      rounds += s.completedRounds;
+      breatheSeconds += s.breakSeconds;
     }
   }
-  return { seconds, count };
+  return { seconds, count, rounds, breatheSeconds };
 }
 
 function goalWindowStart(period: 'weekly' | 'monthly' | 'yearly' | 'total') {
@@ -45,14 +63,86 @@ function goalWindowStart(period: 'weekly' | 'monthly' | 'yearly' | 'total') {
 
 export default function ReportsScreen() {
   const router = useRouter();
-  const { sessions } = useSessions();
-  const { projects } = useProjects();
-  const { presets } = useTimerSettings();
+  const { sessions: allSessions, deleteSession, updateSession } = useSessions();
+  const timer = useTimer();
+  const { projects, tasks } = useProjects();
   const [selectedBar, setSelectedBar] = useState<number | null>(null);
+  // Kayıt düzenleme: satıra dokunmak eylem listesini açar (proje/görev/sil).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [actionSheet, setActionSheet] = useState<'none' | 'actions' | 'project' | 'task'>('none');
+  // Rapor filtresi: yalnız seçili projenin (ve alt projelerinin) kayıtları.
+  const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
-  const now = Date.now();
+  // Filtre kapsamı: seçili proje + alt projeleri (raporun her yerinde geçerli).
+  const filterScope = useMemo(() => {
+    if (!filterProjectId) return null;
+    const ids = new Set([filterProjectId]);
+    for (const pr of projects) if (pr.parentId === filterProjectId) ids.add(pr.id);
+    return ids;
+  }, [filterProjectId, projects]);
+  const sessions = useMemo(
+    () => (filterScope ? allSessions.filter((s) => s.projectId && filterScope.has(s.projectId)) : allSessions),
+    [allSessions, filterScope],
+  );
+  const filterProject = filterProjectId ? projectById.get(filterProjectId) : null;
+
+  const filterOptions: PickerOption[] = useMemo(() => {
+    const options: PickerOption[] = [{ key: '__all__', label: 'Tüm projeler' }];
+    for (const parent of projects.filter((pr) => !pr.parentId)) {
+      options.push({ key: parent.id, label: parent.name, color: parent.color });
+      for (const child of projects.filter((pr) => pr.parentId === parent.id)) {
+        options.push({ key: child.id, label: child.name, color: child.color, indent: true });
+      }
+    }
+    return options;
+  }, [projects]);
+
+  const editing = editingId ? allSessions.find((x) => x.id === editingId) ?? null : null;
+
+  // Düzenlenen kaydın projesine ait görevler (alt projeler dahil).
+  const editingTaskOptions: PickerOption[] = useMemo(() => {
+    const options: PickerOption[] = [{ key: '__no_task__', label: 'Görevsiz' }];
+    if (!editing?.projectId) return options;
+    const scope = new Set([editing.projectId]);
+    for (const pr of projects) if (pr.parentId === editing.projectId) scope.add(pr.id);
+    for (const t of tasks.filter((t) => scope.has(t.projectId)).sort((a, b) => a.orderIndex - b.orderIndex)) {
+      options.push({ key: t.id, label: t.title, indent: !!t.parentTaskId });
+    }
+    return options;
+  }, [editing, tasks, projects]);
+
+  // Raporu metin olarak dışa aktar (yedek/paylaşım).
+  const shareReport = async () => {
+    const lines = [...sessions]
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .map((x) => {
+        const pr = x.projectId ? projectById.get(x.projectId)?.name ?? 'Silinmiş proje' : 'Projesiz';
+        const tk = taskPathLabel(tasks, x.taskId);
+        const d = new Date(x.startedAt);
+        return `${dateKey(d)} ${clockOf(x.startedAt)} · ${pr}${tk ? ' · ' + tk : ''} · ${formatDuration(x.workSeconds)} · ${x.completedRounds} tur`;
+      });
+    await Share.share({
+      title: 'orhan-metre raporu',
+      message: [`Toplam ${sessions.length} kayıt`, '', ...lines].join('\n'),
+    }).catch(() => {});
+  };
+
+  // Kazara kayıtlar (ör. "Bitir"e basmayı unutmak) raporu kalıcı bozar; satıra
+  // uzun basmak silme onayı açar.
+  const confirmDeleteSession = (id: string, label: string) =>
+    confirmAction({
+      title: 'Kaydı sil',
+      message: `${label} kaydı silinecek. Bu işlem geri alınamaz.`,
+      onConfirm: () => {
+        deleteSession(id);
+        // Ana ekrandaki "Kaydedildi: …" özeti silinen kaydı göstermeye devam etmesin.
+        timer.clearLastSaved();
+      },
+    });
+
   const today = sumWork(sessions, startOfToday().getTime());
   const week = sumWork(sessions, startOfWeek(new Date()).getTime());
   const month = sumWork(sessions, startOfMonth().getTime());
@@ -104,7 +194,7 @@ export default function ReportsScreen() {
   // Hedefler.
   const goalRows = useMemo(() => {
     return projects
-      .filter((p) => p.goal)
+      .filter((p) => p.goal && (!filterScope || filterScope.has(p.id)))
       .map((p) => {
         const goal = p.goal!;
         const from = goalWindowStart(goal.period);
@@ -117,15 +207,17 @@ export default function ReportsScreen() {
         const current =
           goal.metric === 'hours'
             ? relevant.reduce((sum, s) => sum + s.workSeconds, 0) / 3600
-            : relevant.filter((s) => s.status === 'completed').length;
+            : relevant.reduce((sum, s) => sum + s.completedRounds, 0);
         const pct = Math.round((current / goal.target) * 100);
         return { project: p, goal, current, pct };
       });
-  }, [projects, sessions]);
+  }, [projects, sessions, filterScope]);
 
-  // Geçmiş: son 20 oturum, güne gruplu, en yeni önce.
+  // Geçmiş: en yeni önce, güne gruplu. Varsayılan 20 kayıt; "daha fazla" ile
+  // sayfa sayfa açılır — eski kayıtlar erişilemez (ve silinemez) kalmasın.
+  const [historyLimit, setHistoryLimit] = useState(20);
   const history = useMemo(() => {
-    const recent = [...sessions].sort((a, b) => b.startedAt - a.startedAt).slice(0, 20);
+    const recent = [...sessions].sort((a, b) => b.startedAt - a.startedAt).slice(0, historyLimit);
     const groups: { dayKey: string; label: string; total: number; items: WorkSession[] }[] = [];
     const todayKey = dateKey(new Date());
     const yesterdayKey = dateKey(addDays(new Date(), -1));
@@ -147,9 +239,8 @@ export default function ReportsScreen() {
       group.items.push(s);
     }
     return groups;
-  }, [sessions]);
+  }, [sessions, historyLimit]);
 
-  const presetName = (id: string | null) => presets.find((p) => p.id === id)?.name ?? 'Önayar';
   const clockOf = (ms: number) => {
     const d = new Date(ms);
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -160,26 +251,31 @@ export default function ReportsScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScreenHeader title="Rapor" />
+        <ScreenHeader
+          title="Raporlar"
+          subtitle="Emeğini görünür kılan istatistikler"
+          right={<HeaderIconButton icon="share" onPress={shareReport} />}
+        />
         <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
-          {!hasAny && (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText} maxFontSizeMultiplier={1.3}>
-                Henüz kayıt yok — Zamanlayıcı'dan bir seans başlat.
-              </Text>
-              <Pressable
-                style={({ pressed }) => [styles.emptyButton, pressed && styles.pressed]}
-                onPress={() => router.push('/')}
-              >
-                <Feather name="clock" size={16} color="#FFFFFF" />
-                <Text style={styles.emptyButtonText} maxFontSizeMultiplier={1.2}>
-                  Zamanlayıcıya git
-                </Text>
-              </Pressable>
-            </View>
-          )}
+          <ScreenIntro eyebrow="İLERLEMEN" title="Her odak anı değerli." description="Çalışma süreni, tamamladığın turları ve hedeflerine ne kadar yaklaştığını gör." />
+          {/* Proje filtresi: tüm kartlar, grafik, hedefler ve geçmiş bu kapsamı izler. */}
+          <Pressable
+            style={({ pressed }) => [styles.filterChip, pressed && styles.pressed]}
+            onPress={() => setFilterOpen(true)}
+          >
+            {filterProject ? (
+              <View style={[styles.projectDotSmall, { backgroundColor: filterProject.color }]} />
+            ) : (
+              <Feather name="filter" size={13} color={L.ink2} />
+            )}
+            <Text style={styles.filterChipText} maxFontSizeMultiplier={1.2}>
+              {filterProject ? filterProject.name : 'Tüm projeler'}
+            </Text>
+            <Feather name="chevron-down" size={14} color={L.tertiary} />
+          </Pressable>
+          {!hasAny && <EmptyState icon="bar-chart-2" title={filterProject ? 'Bu projede henüz oturum yok' : 'İlerlemen burada başlayacak'} description="İlk odak oturumunu tamamladığında çalışma sürelerin ve günlük dağılımın burada görünecek." action={<Button label="Odaklanmaya başla" icon="play" variant="primary" onPress={() => router.push('/')} />} />}
 
-          {hasAny && (
+          {(hasAny || goalRows.length > 0) && (
             <>
               {/* İstatistik kartları */}
               <View style={styles.tileRow}>
@@ -196,7 +292,10 @@ export default function ReportsScreen() {
                       {formatDuration(tile.data.seconds)}
                     </Text>
                     <Text style={styles.tileMeta} maxFontSizeMultiplier={1.2}>
-                      {tile.data.count} seans
+                      {tile.data.rounds} tur
+                      {tile.data.breatheSeconds > 0
+                        ? ` · ${formatDuration(tile.data.breatheSeconds)} nefes`
+                        : ''}
                     </Text>
                   </View>
                 ))}
@@ -210,7 +309,7 @@ export default function ReportsScreen() {
                 <Text style={styles.chartCaption} maxFontSizeMultiplier={1.2}>
                   {selectedBar != null
                     ? `${WEEKDAYS[last7[selectedBar].date.getDay()]} · ${formatDuration(last7[selectedBar].seconds)}`
-                    : ' '}
+                    : 'Günlük çalışma süreni görmek için bir sütuna dokun'}
                 </Text>
                 <View style={styles.chart}>
                   {last7.map((d, i) => (
@@ -318,8 +417,8 @@ export default function ReportsScreen() {
                       <View style={styles.projectRow}>
                         <Text style={styles.goalNumbers} maxFontSizeMultiplier={1.2}>
                           {goal.metric === 'hours'
-                            ? `${formatDuration(Math.round(current * 3600))} / ${goal.target}s`
-                            : `${current} / ${goal.target} seans`}
+                            ? `${formatDuration(Math.round(current * 3600))} / ${goal.target} sa`
+                            : `${current} / ${goal.target} tur`}
                         </Text>
                         <Text
                           style={[styles.projectPct, pct >= 100 && styles.goalDone]}
@@ -363,7 +462,21 @@ export default function ReportsScreen() {
                       const project = s.projectId ? projectById.get(s.projectId) : null;
                       const deleted = s.projectId != null && !project;
                       return (
-                        <View key={s.id} style={styles.historyRow}>
+                        <Pressable
+                          key={s.id}
+                          style={({ pressed }) => [styles.historyRow, pressed && styles.rowPressed]}
+                          onPress={() => {
+                            setEditingId(s.id);
+                            setActionSheet('actions');
+                          }}
+                          onLongPress={() =>
+                            confirmDeleteSession(
+                              s.id,
+                              `${project?.name ?? 'Projesiz'} · ${formatDuration(s.workSeconds)}`,
+                            )
+                          }
+                          delayLongPress={500}
+                        >
                           <View
                             style={[
                               styles.projectDotSmall,
@@ -377,23 +490,106 @@ export default function ReportsScreen() {
                                 <Text style={styles.abandoned}>  · yarım</Text>
                               )}
                             </Text>
+                            {taskPathLabel(tasks, s.taskId) && (
+                              <Text
+                                style={styles.historyTask}
+                                numberOfLines={1}
+                                maxFontSizeMultiplier={1.2}
+                              >
+                                {taskPathLabel(tasks, s.taskId)}
+                              </Text>
+                            )}
                             <Text style={styles.historyMeta} maxFontSizeMultiplier={1.2}>
-                              {presetName(s.presetId)} · {clockOf(s.startedAt)}–{clockOf(s.endedAt)}
+                              {s.completedRounds} tur · {clockOf(s.startedAt)}–{clockOf(s.endedAt)}
                             </Text>
                           </View>
                           <Text style={styles.historyDuration} maxFontSizeMultiplier={1.2}>
                             {formatDuration(s.workSeconds)}
                           </Text>
-                        </View>
+                        </Pressable>
                       );
                     })}
                   </View>
                 ))}
+                {sessions.length > historyLimit && (
+                  <Pressable
+                    style={({ pressed }) => [styles.moreButton, pressed && styles.pressed]}
+                    onPress={() => setHistoryLimit((n) => n + 20)}
+                  >
+                    <Text style={styles.moreButtonText} maxFontSizeMultiplier={1.2}>
+                      Daha fazla göster ({sessions.length - historyLimit} kayıt)
+                    </Text>
+                  </Pressable>
+                )}
+                <Text style={styles.historyHint} maxFontSizeMultiplier={1.2}>
+                  Kaydı düzeltmek için satıra dokun, silmek için basılı tut.
+                </Text>
               </View>
             </>
           )}
         </ScrollView>
       </SafeAreaView>
+
+      <PickerSheet
+        visible={filterOpen}
+        title="Projeye göre filtrele"
+        options={filterOptions}
+        selectedKey={filterProjectId ?? '__all__'}
+        onSelect={(key) => setFilterProjectId(key === '__all__' ? null : key)}
+        onClose={() => setFilterOpen(false)}
+      />
+
+      {/* Kayıt eylemleri: yanlış projeye/göreve yazılmış oturum düzeltilebilir. */}
+      <PickerSheet
+        visible={actionSheet === 'actions'}
+        title="Kayıt"
+        options={[
+          { key: 'project', label: 'Projeyi değiştir' },
+          { key: 'task', label: 'Görevi değiştir' },
+          { key: 'delete', label: 'Kaydı sil' },
+        ]}
+        selectedKey=""
+        onSelect={(key) => {
+          if (key === 'delete') {
+            const label = editing
+              ? `${editing.projectId ? projectById.get(editing.projectId)?.name ?? 'Projesiz' : 'Projesiz'} · ${formatDuration(editing.workSeconds)}`
+              : '';
+            const id = editingId;
+            setActionSheet('none');
+            if (id) confirmDeleteSession(id, label);
+            return;
+          }
+          setActionSheet(key === 'project' ? 'project' : 'task');
+        }}
+        onClose={() => setActionSheet('none')}
+      />
+
+      <PickerSheet
+        visible={actionSheet === 'project'}
+        title="Kaydın projesi"
+        options={filterOptions.map((o) =>
+          o.key === '__all__' ? { key: '__none__', label: 'Projesiz' } : o,
+        )}
+        selectedKey={editing?.projectId ?? '__none__'}
+        onSelect={(key) => {
+          if (!editingId) return;
+          // Proje değişince görev geçersizleşir: birlikte sıfırlanır.
+          updateSession(editingId, { projectId: key === '__none__' ? null : key, taskId: null });
+        }}
+        onClose={() => setActionSheet('none')}
+      />
+
+      <PickerSheet
+        visible={actionSheet === 'task'}
+        title="Kaydın görevi"
+        options={editingTaskOptions}
+        selectedKey={editing?.taskId ?? '__no_task__'}
+        onSelect={(key) => {
+          if (!editingId) return;
+          updateSession(editingId, { taskId: key === '__no_task__' ? null : key });
+        }}
+        onClose={() => setActionSheet('none')}
+      />
     </View>
   );
 }
@@ -410,9 +606,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 16,
-    gap: 12,
-    maxWidth: 560,
+    padding: 20,
+    paddingBottom: 40,
+    gap: 18,
+    maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
   },
@@ -639,6 +836,54 @@ const styles = StyleSheet.create({
     color: L.tertiary,
     fontFamily: F.ui,
     fontSize: 12,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 8,
+    height: 32,
+    paddingHorizontal: 12,
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+  },
+  filterChipText: {
+    color: L.ink,
+    fontFamily: F.uiMed,
+    fontSize: 12,
+  },
+  rowPressed: {
+    backgroundColor: L.pressed,
+  },
+  moreButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 40,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+    backgroundColor: L.surface,
+  },
+  moreButtonText: {
+    color: L.ink2,
+    fontFamily: F.uiMed,
+    fontSize: 13,
+  },
+  historyHint: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  historyTask: {
+    color: L.ink2,
+    fontFamily: F.ui,
+    fontSize: 12,
+    marginTop: 2,
   },
   historyMeta: {
     color: L.tertiary,

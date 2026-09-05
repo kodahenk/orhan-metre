@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -26,7 +25,8 @@ import { addDays, dateKey, formatDuration } from '@/features/timer/format';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
 import { Checkbox, PickerSheet, type PickerOption } from '@/features/ui/components';
-import { F, L, R } from '@/features/ui/theme';
+import { confirmAction } from '@/features/ui/dialogs';
+import { F, L, PROJECT_COLORS, R } from '@/features/ui/theme';
 
 const GLOBAL_PRESET_KEY = '__global__';
 
@@ -48,6 +48,10 @@ export default function ProjectDetailScreen() {
     tasks,
     deleteProject,
     addProject,
+    renameProject,
+    setProjectColor,
+    moveProject,
+    moveTaskOrder,
     setProjectGoal,
     setProjectPreset,
     addTask,
@@ -64,6 +68,9 @@ export default function ProjectDetailScreen() {
     [projects, id],
   );
 
+  // Başlığa dokunmak adı düzenlemeye açar; renameProject boş adı yok sayar.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
   const [newTask, setNewTask] = useState('');
   const [newChild, setNewChild] = useState('');
   const [presetPickerOpen, setPresetPickerOpen] = useState(false);
@@ -98,6 +105,13 @@ export default function ProjectDetailScreen() {
       <View style={styles.screen}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <Text style={styles.emptyText}>Proje bulunamadı.</Text>
+          <Pressable
+            style={({ pressed }) => [styles.backHome, pressed && { opacity: 0.6 }]}
+            onPress={() => router.back()}
+          >
+            <Feather name="chevron-left" size={16} color={L.ink2} />
+            <Text style={styles.backHomeText}>Geri dön</Text>
+          </Pressable>
         </SafeAreaView>
       </View>
     );
@@ -132,25 +146,38 @@ export default function ProjectDetailScreen() {
   };
 
   const confirmDeleteProject = () => {
-    Alert.alert(
-      'Projeyi sil',
-      `"${project.name}"${children.length > 0 ? ', alt projeleri' : ''} ve tüm görevleri silinecek. Zaman kayıtları Rapor'da kalır.`,
-      [
-        { text: 'Vazgeç', style: 'cancel' },
-        {
-          text: 'Sil',
-          style: 'destructive',
-          onPress: () => {
-            deleteProject(project.id);
-            router.back();
-          },
-        },
-      ],
-    );
+    confirmAction({
+      title: 'Projeyi sil',
+      message: `"${project.name}"${children.length > 0 ? ', alt projeleri' : ''} ve tüm görevleri silinecek. Zaman kayıtları Rapor'da kalır.`,
+      onConfirm: () => {
+        deleteProject(project.id);
+        router.back();
+      },
+    });
   };
 
-  const startTimerHere = () => {
+  // Oturum sürerken seçim değiştirmek çalışan sayacı etkilemez; sessizce
+  // yanıltmamak için uyarılır.
+  const commitName = () => {
+    const clean = nameDraft.trim();
+    if (clean && clean !== project.name) renameProject(project.id, clean);
+    setEditingName(false);
+  };
+
+  const startTimerHere = (taskId?: string) => {
+    if (timer.status !== 'idle') {
+      confirmAction({
+        title: 'Zamanlayıcı çalışıyor',
+        message:
+          'Süren oturumun projesi/görevi değiştirilemez. Yeni bir seçimle başlamak için önce Bitir.',
+        confirmLabel: 'Sayaca git',
+        destructive: false,
+        onConfirm: () => router.push('/'),
+      });
+      return;
+    }
     timer.setPendingProject(project.id);
+    if (taskId) timer.setPendingTask(taskId);
     router.push('/');
   };
 
@@ -190,9 +217,30 @@ export default function ProjectDetailScreen() {
             )}
             <View style={styles.titleRow}>
               <View style={[styles.colorDot, { backgroundColor: project.color }]} />
-              <Text style={styles.headerTitle} numberOfLines={1} maxFontSizeMultiplier={1.2}>
-                {project.name}
-              </Text>
+              {editingName ? (
+                <TextInput
+                  style={[styles.headerTitle, styles.headerTitleInput]}
+                  value={nameDraft}
+                  onChangeText={setNameDraft}
+                  onBlur={commitName}
+                  onSubmitEditing={commitName}
+                  autoFocus
+                  maxLength={40}
+                  returnKeyType="done"
+                />
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    setNameDraft(project.name);
+                    setEditingName(true);
+                  }}
+                  hitSlop={6}
+                >
+                  <Text style={styles.headerTitle} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+                    {project.name}
+                  </Text>
+                </Pressable>
+              )}
             </View>
           </View>
           <Pressable
@@ -251,17 +299,34 @@ export default function ProjectDetailScreen() {
                     ? `${GOAL_PERIOD_LABELS[project.goal.period]} ${
                         project.goal.metric === 'hours'
                           ? `${project.goal.target}s`
-                          : `${project.goal.target} seans`
+                          : `${project.goal.target} tur`
                       }`
                     : 'Hedef ekle'}
                 </Text>
               </Pressable>
             </View>
 
+            {/* Proje rengi — listelerde ve grafiklerde ayırt edici */}
+            <View style={styles.colorRow}>
+              {PROJECT_COLORS.map((color) => (
+                <Pressable
+                  key={color}
+                  onPress={() => setProjectColor(project.id, color)}
+                  hitSlop={4}
+                  style={[
+                    styles.colorSwatchWrap,
+                    project.color === color && styles.colorSwatchWrapOn,
+                  ]}
+                >
+                  <View style={[styles.colorSwatch, { backgroundColor: color }]} />
+                </Pressable>
+              ))}
+            </View>
+
             {/* Zamanlayıcı başlat */}
             <Pressable
               style={({ pressed }) => [styles.timerButton, pressed && styles.timerButtonPressed]}
-              onPress={startTimerHere}
+              onPress={() => startTimerHere()}
             >
               <Feather name="clock" size={16} color="#FFFFFF" />
               <Text style={styles.timerButtonText} maxFontSizeMultiplier={1.2}>
@@ -319,6 +384,30 @@ export default function ProjectDetailScreen() {
                               {formatDuration(childSeconds)}
                             </Text>
                           )}
+                          <View style={styles.orderCol}>
+                            <Pressable
+                              hitSlop={6}
+                              onPress={() => moveProject(child.id, -1)}
+                              disabled={i === 0}
+                            >
+                              <Feather
+                                name="chevron-up"
+                                size={16}
+                                color={i === 0 ? L.hairline : L.tertiary}
+                              />
+                            </Pressable>
+                            <Pressable
+                              hitSlop={6}
+                              onPress={() => moveProject(child.id, 1)}
+                              disabled={i === children.length - 1}
+                            >
+                              <Feather
+                                name="chevron-down"
+                                size={16}
+                                color={i === children.length - 1 ? L.hairline : L.tertiary}
+                              />
+                            </Pressable>
+                          </View>
                           <Feather name="chevron-right" size={18} color={L.tertiary} />
                         </Pressable>
                       );
@@ -396,6 +485,8 @@ export default function ProjectDetailScreen() {
                       <Pressable
                         style={styles.taskBody}
                         onPress={() => router.push(`/task/${task.id}`)}
+                        onLongPress={() => startTimerHere(task.id)}
+                        delayLongPress={400}
                       >
                         <Text
                           style={[styles.taskTitle, task.done && styles.taskTitleDone]}
@@ -430,6 +521,30 @@ export default function ProjectDetailScreen() {
                           </View>
                         )}
                       </Pressable>
+                      <View style={styles.orderCol}>
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => moveTaskOrder(task.id, -1)}
+                          disabled={i === 0}
+                        >
+                          <Feather
+                            name="chevron-up"
+                            size={16}
+                            color={i === 0 ? L.hairline : L.tertiary}
+                          />
+                        </Pressable>
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => moveTaskOrder(task.id, 1)}
+                          disabled={i === topTasks.length - 1}
+                        >
+                          <Feather
+                            name="chevron-down"
+                            size={16}
+                            color={i === topTasks.length - 1 ? L.hairline : L.tertiary}
+                          />
+                        </Pressable>
+                      </View>
                       <Feather name="chevron-right" size={18} color={L.tertiary} />
                     </View>
                   );
@@ -472,7 +587,7 @@ export default function ProjectDetailScreen() {
               {(
                 [
                   { key: 'hours', label: 'Saat' },
-                  { key: 'sessions', label: 'Seans' },
+                  { key: 'rounds', label: 'Tur' },
                 ] as const
               ).map((opt, i) => (
                 <Pressable
@@ -495,7 +610,7 @@ export default function ProjectDetailScreen() {
             </View>
 
             <Text style={styles.fieldLabel} maxFontSizeMultiplier={1.2}>
-              Hedef ({goalMetric === 'hours' ? 'saat' : 'seans sayısı'})
+              Hedef ({goalMetric === 'hours' ? 'saat' : 'tur sayısı'})
             </Text>
             <TextInput
               style={styles.input}
@@ -608,6 +723,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  headerTitleInput: {
+    padding: 0,
+    minWidth: 120,
+  },
   headerTitle: {
     color: L.ink,
     fontFamily: F.uiSemi,
@@ -622,7 +741,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
     gap: 8,
-    maxWidth: 560,
+    maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
   },
@@ -656,6 +775,29 @@ const styles = StyleSheet.create({
   },
   chipTextAccent: {
     color: L.accent,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  colorSwatchWrap: {
+    padding: 2,
+    borderRadius: R.md + 2,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorSwatchWrapOn: {
+    borderColor: L.ink,
+  },
+  colorSwatch: {
+    width: 24,
+    height: 24,
+    borderRadius: R.md,
+  },
+  orderCol: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   timerButton: {
     flexDirection: 'row',
@@ -769,6 +911,23 @@ const styles = StyleSheet.create({
   },
   addButtonPressed: {
     backgroundColor: L.accentPressed,
+  },
+  backHome: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    height: 40,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+  },
+  backHomeText: {
+    color: L.ink2,
+    fontFamily: F.uiMed,
+    fontSize: 13,
   },
   emptyText: {
     color: L.tertiary,

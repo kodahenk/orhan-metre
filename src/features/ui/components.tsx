@@ -1,19 +1,22 @@
 import { Feather } from '@expo/vector-icons';
 import { type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+
 
 import { F, L, R } from './theme';
 
 /**
  * Sekme ekranlarının ortak üst barı: beyaz yüzey, altta hairline,
- * sola dayalı başlık (16dp hizası), sağda en fazla iki eylem.
+ * sola dayalı başlık ve açıklama, sağda en fazla iki eylem.
  */
-export function ScreenHeader({ title, right }: { title: string; right?: ReactNode }) {
+export function ScreenHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {
   return (
     <View style={styles.header}>
-      <Text style={styles.headerTitle} maxFontSizeMultiplier={1.3}>
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}><Text numberOfLines={2} style={styles.headerTitle} maxFontSizeMultiplier={1.3}>
         {title}
       </Text>
+      {subtitle && <Text style={{ fontFamily: F.ui, fontSize: 12, color: L.tertiary }}>{subtitle}</Text>}
+      </View>
       <View style={styles.headerRight}>{right}</View>
     </View>
   );
@@ -21,14 +24,18 @@ export function ScreenHeader({ title, right }: { title: string; right?: ReactNod
 
 export function HeaderIconButton({
   icon,
+  label,
   onPress,
 }: {
   icon: keyof typeof Feather.glyphMap;
+  label?: string;
   onPress: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label ?? ({ maximize: 'Tam ekran', share: 'Raporu paylaş', 'arrow-left': 'Geri', settings: 'Ayarlar' } as Record<string, string>)[icon] ?? icon}
       hitSlop={8}
       style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
     >
@@ -54,13 +61,15 @@ const BUTTON_TEXT_COLOR: Record<ButtonVariant, string> = {
   ghost: L.accent,
 };
 
-/** 44dp, radius 4, Inter 600 14 — gölgesiz, hairline ayrımlı. */
+/** En az 48dp dokunma alanı; ortak renk ve köşe tokenları. */
 export function Button({ label, onPress, icon, variant = 'secondary', disabled }: ButtonProps) {
   const textColor = disabled ? L.tertiary : BUTTON_TEXT_COLOR[variant];
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       style={({ pressed }) => [
         styles.button,
         variant === 'primary' && styles.buttonPrimary,
@@ -81,10 +90,10 @@ export function Button({ label, onPress, icon, variant = 'secondary', disabled }
   );
 }
 
-/** 20dp kare onay kutusu (radius 3) — dokunma hedefi 44dp. */
+/** 20dp onay kutusu; dokunma hedefi 44dp. */
 export function Checkbox({ checked, onPress }: { checked: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={12} style={styles.checkboxTarget}>
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} accessibilityLabel="Görev tamamlandı" onPress={onPress} hitSlop={6} style={styles.checkboxTarget}>
       <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
         {checked && <Feather name="check" size={14} color="#FFFFFF" />}
       </View>
@@ -97,9 +106,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingLeft: 16,
+    paddingLeft: 24,
     paddingRight: 8,
-    height: 56,
+    minHeight: 86,
+    paddingVertical: 16,
     backgroundColor: L.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: L.hairline,
@@ -107,7 +117,8 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: L.ink,
     fontFamily: F.uiSemi,
-    fontSize: 18,
+    fontSize: 24,
+    letterSpacing: -0.7,
   },
   headerRight: {
     flexDirection: 'row',
@@ -124,11 +135,14 @@ const styles = StyleSheet.create({
     backgroundColor: L.pressed,
   },
   button: {
+    maxWidth: '100%',
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    height: 44,
+    minHeight: 48,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: R.md,
   },
@@ -163,13 +177,16 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   buttonText: {
+    flexShrink: 1,
+    textAlign: 'center',
     fontFamily: F.uiSemi,
     fontSize: 14,
     letterSpacing: 0.1,
   },
   checkboxTarget: {
-    width: 32,
-    height: 32,
+    flexShrink: 0,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -189,154 +206,28 @@ const styles = StyleSheet.create({
   },
 });
 
-// --- PickerSheet: alttan açılan basit seçim listesi (Modal tabanlı) ---
+export { PickerSheet, type PickerOption } from './picker-sheet';
 
-import { Modal, ScrollView } from 'react-native';
-
-export type PickerOption = {
-  key: string;
-  label: string;
-  color?: string;
-  indent?: boolean;
-  caption?: string;
-};
-
-type PickerSheetProps = {
-  visible: boolean;
-  title: string;
-  options: PickerOption[];
-  selectedKey?: string | null;
-  onSelect: (key: string) => void;
-  onClose: () => void;
-};
-
-export function PickerSheet({
-  visible,
-  title,
-  options,
-  selectedKey,
-  onSelect,
-  onClose,
-}: PickerSheetProps) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={sheetStyles.backdrop} onPress={onClose}>
-        <Pressable style={sheetStyles.sheet} onPress={() => {}}>
-          <Text style={sheetStyles.title} maxFontSizeMultiplier={1.2}>
-            {title}
-          </Text>
-          <ScrollView style={sheetStyles.list} bounces={false}>
-            {options.map((opt, i) => {
-              const selected = selectedKey === opt.key;
-              return (
-                <Pressable
-                  key={opt.key}
-                  style={({ pressed }) => [
-                    sheetStyles.row,
-                    i > 0 && sheetStyles.rowSeparator,
-                    opt.indent && sheetStyles.rowIndent,
-                    pressed && sheetStyles.rowPressed,
-                    selected && sheetStyles.rowSelected,
-                  ]}
-                  onPress={() => {
-                    onSelect(opt.key);
-                    onClose();
-                  }}
-                >
-                  {opt.color != null && (
-                    <View style={[sheetStyles.dot, { backgroundColor: opt.color }]} />
-                  )}
-                  <View style={sheetStyles.rowBody}>
-                    <Text
-                      style={[sheetStyles.rowLabel, selected && sheetStyles.rowLabelSelected]}
-                      maxFontSizeMultiplier={1.2}
-                    >
-                      {opt.label}
-                    </Text>
-                    {opt.caption && (
-                      <Text style={sheetStyles.rowCaption} maxFontSizeMultiplier={1.2}>
-                        {opt.caption}
-                      </Text>
-                    )}
-                  </View>
-                  {selected && <Feather name="check" size={17} color={L.accent} />}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
+export function ScreenIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return <View style={{ gap: 8, paddingVertical: 12 }}>
+    <Text style={{ color: L.accent, fontFamily: F.uiSemi, fontSize: 11, letterSpacing: 1.6 }}>{eyebrow}</Text>
+    <Text accessibilityRole="header" style={{ color: L.ink, fontFamily: F.uiSemi, fontSize: 28, letterSpacing: -0.9 }}>{title}</Text>
+    <Text style={{ color: L.ink2, fontFamily: F.ui, fontSize: 14, lineHeight: 22 }}>{description}</Text>
+  </View>;
 }
 
-const sheetStyles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: L.surface,
-    borderTopLeftRadius: R.lg,
-    borderTopRightRadius: R.lg,
-    paddingTop: 16,
-    paddingBottom: 24,
-    maxHeight: '70%',
-  },
-  title: {
-    color: L.tertiary,
-    fontFamily: F.uiSemi,
-    fontSize: 13,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  list: {
-    flexGrow: 0,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    minHeight: 48,
-    paddingVertical: 8,
-  },
-  rowSeparator: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: L.hairline,
-  },
-  rowIndent: {
-    paddingLeft: 36,
-  },
-  rowPressed: {
-    backgroundColor: L.pressed,
-  },
-  rowSelected: {
-    backgroundColor: L.selected,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  rowBody: {
-    flex: 1,
-  },
-  rowLabel: {
-    color: L.ink,
-    fontFamily: F.uiMed,
-    fontSize: 15,
-  },
-  rowLabelSelected: {
-    color: L.accent,
-  },
-  rowCaption: {
-    color: L.tertiary,
-    fontFamily: F.ui,
-    fontSize: 12,
-    marginTop: 2,
-  },
-});
+export function EmptyState({ icon, title, description, action }: { icon: keyof typeof Feather.glyphMap; title: string; description: string; action?: ReactNode }) {
+  return <View style={{ alignItems: 'center', gap: 12, padding: 28, backgroundColor: L.surface, borderRadius: R.lg, borderWidth: 1, borderColor: L.hairline }}>
+    <View style={{ padding: 16, backgroundColor: L.selected, borderRadius: R.lg }}><Feather name={icon} size={26} color={L.accent} /></View>
+    <Text style={{ fontFamily: F.uiSemi, color: L.ink, fontSize: 17, textAlign: 'center' }}>{title}</Text>
+    <Text style={{ fontFamily: F.ui, color: L.ink2, fontSize: 13, lineHeight: 21, textAlign: 'center' }}>{description}</Text>
+    {action}
+  </View>;
+}
+
+export function LoadingScreen() {
+  return <View style={{ flex: 1, backgroundColor: L.canvas, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+    <ActivityIndicator size="large" color={L.accent} />
+    <Text accessibilityLiveRegion="polite" style={{ color: L.ink2, fontSize: 14 }}>Çalışma alanın hazırlanıyor…</Text>
+  </View>;
+}

@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,8 +15,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useProjects, type Task } from '@/features/projects/projects-context';
 import { useSessions } from '@/features/sessions/sessions-context';
-import { addDays, dateKey, formatDuration } from '@/features/timer/format';
-import { Checkbox } from '@/features/ui/components';
+import { addDays, dateKey, formatDate, formatDuration } from '@/features/timer/format';
+import { useTimer } from '@/features/timer/timer-context';
+import { Checkbox, PickerSheet, type PickerOption } from '@/features/ui/components';
+import { confirmAction } from '@/features/ui/dialogs';
 import { F, L, R } from '@/features/ui/theme';
 
 /**
@@ -28,27 +29,49 @@ import { F, L, R } from '@/features/ui/theme';
 export default function TaskDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { projects, tasks, addTask, updateTask, deleteTask } = useProjects();
+  const { projects, tasks, addTask, updateTask, deleteTask, moveTask, moveTaskOrder } =
+    useProjects();
+  const timer = useTimer();
 
   const task = tasks.find((t) => t.id === id);
   const project = task ? projects.find((p) => p.id === task.projectId) : null;
 
   const [newSubtask, setNewSubtask] = useState('');
 
+  // Başlık taslağı: görev değişince tazelenir, yazarken 500 ms'de bir kaydedilir
+  // (açıklama alanıyla aynı desen). Boş başlık kaydedilmez.
+  const [titleDraft, setTitleDraft] = useState(task?.title ?? '');
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Açıklama taslağı: görev değişince tazelenir, yazarken 500 ms'de bir kaydedilir.
-  const [noteDraft, setNoteDraft] = useState('');
+  const [noteDraft, setNoteDraft] = useState(task?.note ?? '');
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taskId = task?.id;
   const taskNote = task?.note ?? '';
-  useEffect(() => {
+  const taskTitle = task?.title ?? '';
+  const [draftTaskId, setDraftTaskId] = useState(taskId);
+  if (draftTaskId !== taskId) {
+    setDraftTaskId(taskId);
     setNoteDraft(taskNote);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId]);
+    setTitleDraft(taskTitle);
+  }
   useEffect(() => {
     return () => {
       if (noteTimer.current) clearTimeout(noteTimer.current);
+      if (titleTimer.current) clearTimeout(titleTimer.current);
     };
   }, []);
+
+  const onTitleChange = (text: string) => {
+    setTitleDraft(text);
+    if (titleTimer.current) clearTimeout(titleTimer.current);
+    titleTimer.current = setTimeout(() => {
+      const clean = text.trim();
+      if (taskId && clean) updateTask(taskId, { title: clean });
+    }, 500);
+  };
   const onNoteChange = (text: string) => {
     setNoteDraft(text);
     if (noteTimer.current) clearTimeout(noteTimer.current);
@@ -101,11 +124,44 @@ export default function TaskDetailScreen() {
   }, [sessions, tasks, id]);
   const grandChildCount = (taskId: string) => tasks.filter((t) => t.parentTaskId === taskId).length;
 
+  // Görevi başka projeye taşıma: alt ağacı da birlikte taşınır (moveTask).
+  const projectOptions: PickerOption[] = useMemo(() => {
+    const options: PickerOption[] = [];
+    for (const parent of projects.filter((pr) => !pr.parentId)) {
+      options.push({ key: parent.id, label: parent.name, color: parent.color });
+      for (const child of projects.filter((pr) => pr.parentId === parent.id)) {
+        options.push({ key: child.id, label: child.name, color: child.color, indent: true });
+      }
+    }
+    return options;
+  }, [projects]);
+
+  // Rasgele tarih: yeni bağımlılık yerine önümüzdeki 3 haftadan seçim.
+  const dateOptions: PickerOption[] = useMemo(() => {
+    const options: PickerOption[] = [{ key: '__none__', label: 'Tarihsiz' }];
+    for (let i = 0; i < 21; i++) {
+      const d = addDays(new Date(), i);
+      options.push({
+        key: dateKey(d),
+        label: i === 0 ? 'Bugün' : i === 1 ? 'Yarın' : formatDate(d),
+        caption: i > 1 ? undefined : formatDate(d),
+      });
+    }
+    return options;
+  }, []);
+
   if (!task || !project) {
     return (
       <View style={styles.screen}>
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <Text style={styles.emptyText}>Görev bulunamadı.</Text>
+          <Pressable
+            style={({ pressed }) => [styles.backHome, pressed && { opacity: 0.6 }]}
+            onPress={() => router.back()}
+          >
+            <Feather name="chevron-left" size={16} color={L.ink2} />
+            <Text style={styles.backHomeText}>Geri dön</Text>
+          </Pressable>
         </SafeAreaView>
       </View>
     );
@@ -121,17 +177,14 @@ export default function TaskDetailScreen() {
   };
 
   const confirmDelete = () => {
-    Alert.alert('Görevi sil', `"${task.title}" ve tüm alt görevleri silinecek.`, [
-      { text: 'Vazgeç', style: 'cancel' },
-      {
-        text: 'Sil',
-        style: 'destructive',
-        onPress: () => {
-          deleteTask(task.id);
-          router.back();
-        },
+    confirmAction({
+      title: 'Görevi sil',
+      message: `"${task.title}" ve tüm alt görevleri silinecek.`,
+      onConfirm: () => {
+        deleteTask(task.id);
+        router.back();
       },
-    ]);
+    });
   };
 
   const setDue = (due: string | null) => updateTask(task.id, { dueDate: due });
@@ -196,13 +249,29 @@ export default function TaskDetailScreen() {
                 checked={task.done}
                 onPress={() => updateTask(task.id, { done: !task.done })}
               />
-              <Text
-                style={[styles.title, task.done && styles.titleDone]}
+              <TextInput
+                style={[styles.title, styles.titleInput, task.done && styles.titleDone]}
+                value={titleDraft}
+                onChangeText={onTitleChange}
+                placeholder="Görev adı"
+                placeholderTextColor={L.tertiary}
+                maxLength={120}
+                multiline
                 maxFontSizeMultiplier={1.3}
-              >
-                {task.title}
-              </Text>
+              />
             </View>
+
+            {/* Görevin projesi — dokunarak başka projeye taşınır */}
+            <Pressable
+              style={({ pressed }) => [styles.metaRow, pressed && styles.pressedRow]}
+              onPress={() => setProjectPickerOpen(true)}
+            >
+              <View style={[styles.projectDot, { backgroundColor: project.color }]} />
+              <Text style={styles.metaText} maxFontSizeMultiplier={1.2}>
+                {project.name}
+              </Text>
+              <Feather name="chevron-down" size={14} color={L.tertiary} />
+            </Pressable>
 
             {/* Zamanlayıcıdan bu göreve yazılan toplam çalışma süresi */}
             {totalWorkSeconds > 0 && (
@@ -227,6 +296,24 @@ export default function TaskDetailScreen() {
               maxFontSizeMultiplier={1.2}
             />
 
+            {/* Bu görevle çalış: proje + görev seçimini yapıp zamanlayıcıya götürür.
+                Oturum sürerken gizlidir — görev oturum boyunca kilitlidir. */}
+            {timer.status === 'idle' && !task.done && (
+              <Pressable
+                style={({ pressed }) => [styles.workButton, pressed && styles.workButtonPressed]}
+                onPress={() => {
+                  timer.setPendingProject(project.id);
+                  timer.setPendingTask(task.id);
+                  router.push('/');
+                }}
+              >
+                <Feather name="play" size={16} color="#FFFFFF" />
+                <Text style={styles.workButtonText} maxFontSizeMultiplier={1.2}>
+                  Bu görevle çalış
+                </Text>
+              </Pressable>
+            )}
+
             {/* Tarih çipleri */}
             <View style={styles.chipRow}>
               <Pressable
@@ -249,6 +336,14 @@ export default function TaskDetailScreen() {
                   maxFontSizeMultiplier={1.2}
                 >
                   Yarın
+                </Text>
+              </Pressable>
+              <Pressable style={styles.chip} onPress={() => setDatePickerOpen(true)}>
+                <Feather name="calendar" size={12} color={L.ink2} />
+                <Text style={styles.chipText} maxFontSizeMultiplier={1.2}>
+                  {task.dueDate && task.dueDate !== todayKey && task.dueDate !== tomorrowKey
+                    ? formatDate(new Date(task.dueDate))
+                    : 'Tarih seç'}
                 </Text>
               </Pressable>
               {task.dueDate && (
@@ -325,6 +420,30 @@ export default function TaskDetailScreen() {
                           </Text>
                         )}
                       </Pressable>
+                      <View style={styles.orderCol}>
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => moveTaskOrder(child.id, -1)}
+                          disabled={i === 0}
+                        >
+                          <Feather
+                            name="chevron-up"
+                            size={16}
+                            color={i === 0 ? L.hairline : L.tertiary}
+                          />
+                        </Pressable>
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => moveTaskOrder(child.id, 1)}
+                          disabled={i === children.length - 1}
+                        >
+                          <Feather
+                            name="chevron-down"
+                            size={16}
+                            color={i === children.length - 1 ? L.hairline : L.tertiary}
+                          />
+                        </Pressable>
+                      </View>
                       <Feather name="chevron-right" size={18} color={L.tertiary} />
                     </View>
                   );
@@ -334,6 +453,23 @@ export default function TaskDetailScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      <PickerSheet
+        visible={projectPickerOpen}
+        title="Görevi taşı"
+        options={projectOptions}
+        selectedKey={task.projectId}
+        onSelect={(key) => moveTask(task.id, key, task.parentTaskId)}
+        onClose={() => setProjectPickerOpen(false)}
+      />
+      <PickerSheet
+        visible={datePickerOpen}
+        title="Tarih seç"
+        options={dateOptions}
+        selectedKey={task.dueDate ?? '__none__'}
+        onSelect={(key) => setDue(key === '__none__' ? null : key)}
+        onClose={() => setDatePickerOpen(false)}
+      />
     </View>
   );
 }
@@ -342,6 +478,52 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: L.canvas,
+  },
+  workButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 40,
+    backgroundColor: L.accent,
+    borderRadius: R.md,
+  },
+  workButtonPressed: {
+    backgroundColor: L.accentPressed,
+  },
+  workButtonText: {
+    color: '#FFFFFF',
+    fontFamily: F.uiSemi,
+    fontSize: 13,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    height: 32,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+    backgroundColor: L.surface,
+  },
+  pressedRow: {
+    backgroundColor: L.pressed,
+  },
+  metaText: {
+    color: L.ink,
+    fontFamily: F.uiMed,
+    fontSize: 12,
+  },
+  projectDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  orderCol: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   timeRow: {
     flexDirection: 'row',
@@ -395,7 +577,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
     gap: 8,
-    maxWidth: 560,
+    maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
   },
@@ -417,6 +599,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
   },
+  titleInput: {
+    padding: 0,
+  },
   titleDone: {
     color: L.tertiary,
     textDecorationLine: 'line-through',
@@ -427,6 +612,9 @@ const styles = StyleSheet.create({
   },
   chip: {
     height: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: L.border,
@@ -479,6 +667,23 @@ const styles = StyleSheet.create({
   },
   addButtonPressed: {
     backgroundColor: L.accentPressed,
+  },
+  backHome: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    height: 40,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+  },
+  backHomeText: {
+    color: L.ink2,
+    fontFamily: F.uiMed,
+    fontSize: 13,
   },
   emptyText: {
     color: L.tertiary,

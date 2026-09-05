@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -22,7 +23,16 @@ import {
   startOfWeek,
   WEEKDAYS_SHORT,
 } from '@/features/timer/format';
-import { Checkbox, ScreenHeader } from '@/features/ui/components';
+import {
+  Button,
+  EmptyState,
+  HeaderIconButton,
+  ScreenIntro,
+  Checkbox,
+  PickerSheet,
+  ScreenHeader,
+  type PickerOption,
+} from '@/features/ui/components';
 import { F, L, R } from '@/features/ui/theme';
 
 type Mode = 'gun' | 'hafta' | 'ay';
@@ -36,10 +46,16 @@ const MODES: { key: Mode; label: string }[] = [
 type DatedTask = { project: Project; task: Task };
 
 export default function CalendarScreen() {
+  const router = useRouter();
   const { projects, tasks, addTask, updateTask } = useProjects();
   const [mode, setMode] = useState<Mode>('hafta');
   const [selectedKey, setSelectedKey] = useState(() => dateKey(new Date()));
   const [newTask, setNewTask] = useState('');
+  // Hızlı eklemenin hedef projesi: varsayılan olarak sıradaki ilk üst proje.
+  const [targetProjectId, setTargetProjectId] = useState<string | null>(null);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  // Takvimden görevin gününü değiştirme (satıra basılı tut).
+  const [dateTaskId, setDateTaskId] = useState<string | null>(null);
 
   const selected = parseDateKey(selectedKey);
   const todayKey = dateKey(new Date());
@@ -70,10 +86,42 @@ export default function CalendarScreen() {
     }
   };
 
+  // Sıralı liste: ham depolama sırası yerine kullanıcıya görünen sıra.
+  const orderedProjects = useMemo(
+    () => [...projects].sort((a, b) => a.orderIndex - b.orderIndex),
+    [projects],
+  );
+  const targetProject =
+    orderedProjects.find((p) => p.id === targetProjectId) ?? orderedProjects[0] ?? null;
+
+  const projectOptions: PickerOption[] = useMemo(
+    () =>
+      orderedProjects.map((p) => ({
+        key: p.id,
+        label: p.name,
+        color: p.color,
+        indent: !!p.parentId,
+      })),
+    [orderedProjects],
+  );
+
+  // Önümüzdeki 3 hafta + "tarihsiz": görev başka güne taşınabilsin.
+  const dateOptions: PickerOption[] = useMemo(() => {
+    const options: PickerOption[] = [{ key: '__none__', label: 'Tarihsiz' }];
+    for (let i = 0; i < 21; i++) {
+      const d = addDays(new Date(), i);
+      options.push({
+        key: dateKey(d),
+        label: i === 0 ? 'Bugün' : i === 1 ? 'Yarın' : formatDate(d),
+      });
+    }
+    return options;
+  }, []);
+
   const submitTask = () => {
     const title = newTask.trim();
-    if (!title || projects.length === 0) return;
-    addTask(projects[0].id, null, title, selectedKey);
+    if (!title || !targetProject) return;
+    addTask(targetProject.id, null, title, selectedKey);
     setNewTask('');
   };
 
@@ -99,7 +147,7 @@ export default function CalendarScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScreenHeader title="Takvim" />
+        <ScreenHeader title="Takvim" subtitle="Gününü planla, odağına yer aç" right={<HeaderIconButton icon="corner-down-left" label="Bugüne dön" onPress={() => setSelectedKey(dateKey(new Date()))} />} />
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -109,11 +157,14 @@ export default function CalendarScreen() {
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
           >
+            <ScreenIntro eyebrow="PLANIN" title="Her güne bir adım." description="Görevlerini takvimine yerleştir ve gününü daha bilinçli planla." />
             {/* Görünüm seçici — 36dp segment, kayan yok */}
             <View style={styles.segment}>
               {MODES.map((m, i) => (
                 <Pressable
                   key={m.key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: mode === m.key }}
                   style={[
                     styles.segmentItem,
                     i > 0 && styles.segmentDivider,
@@ -134,7 +185,7 @@ export default function CalendarScreen() {
             {/* Dönem başlığı + gezinme */}
             <View style={styles.periodRow}>
               <Pressable
-                onPress={() => shift(-1)}
+                accessibilityRole="button" accessibilityLabel="Önceki dönem" onPress={() => shift(-1)}
                 hitSlop={8}
                 style={({ pressed }) => [styles.navButton, pressed && styles.navPressed]}
               >
@@ -144,7 +195,7 @@ export default function CalendarScreen() {
                 {periodTitle}
               </Text>
               <Pressable
-                onPress={() => shift(1)}
+                accessibilityRole="button" accessibilityLabel="Sonraki dönem" onPress={() => shift(1)}
                 hitSlop={8}
                 style={({ pressed }) => [styles.navButton, pressed && styles.navPressed]}
               >
@@ -262,9 +313,7 @@ export default function CalendarScreen() {
             </Text>
 
             {dayTasks.length === 0 && (
-              <Text style={styles.emptyText} maxFontSizeMultiplier={1.3}>
-                Bu güne atanmış görev yok.
-              </Text>
+              <EmptyState icon="calendar" title="Bugünün planı sana ait" description={targetProject ? 'Bu tarih için henüz görev yok. Aşağıdan ilk görevini ekleyebilirsin.' : 'Takvimine görev eklemek için önce bir proje oluştur.'} action={!targetProject ? <Button label="Proje oluştur" icon="plus" variant="primary" onPress={() => router.push('/projects')} /> : undefined} />
             )}
 
             {dayTasks.length > 0 && (
@@ -275,7 +324,14 @@ export default function CalendarScreen() {
                       checked={task.done}
                       onPress={() => updateTask(task.id, { done: !task.done })}
                     />
-                    <View style={styles.flex}>
+                    {/* Satıra dokunmak görev detayına götürür: takvim, çalışma
+                        akışının girişi olduğu için çıkmaz sokak olmamalı. */}
+                    <Pressable
+                      style={styles.flex}
+                      onPress={() => router.push(`/task/${task.id}`)}
+                      onLongPress={() => setDateTaskId(task.id)}
+                      delayLongPress={400}
+                    >
                       <Text
                         style={[styles.taskTitle, task.done && styles.taskTitleDone]}
                         maxFontSizeMultiplier={1.3}
@@ -288,34 +344,71 @@ export default function CalendarScreen() {
                           {project.name}
                         </Text>
                       </View>
-                    </View>
+                    </Pressable>
+                    <Feather name="chevron-right" size={16} color={L.tertiary} />
                   </View>
                 ))}
               </View>
             )}
 
-            {/* Seçili güne hızlı görev ekleme (ilk projeye) */}
-            <View style={styles.addRow}>
+            {/* Seçili güne hızlı görev ekleme — hedef proje seçilebilir */}
+            {targetProject && (
+              <Pressable
+                style={({ pressed }) => [styles.targetChip, pressed && styles.chipPressed]}
+                onPress={() => setProjectPickerOpen(true)}
+              >
+                <View style={[styles.projectDot, { backgroundColor: targetProject.color }]} />
+                <Text style={styles.targetChipText} maxFontSizeMultiplier={1.2}>
+                  {targetProject.name}
+                </Text>
+                <Feather name="chevron-down" size={14} color={L.tertiary} />
+              </Pressable>
+            )}
+            {targetProject && <View style={styles.addRow}>
               <TextInput
                 style={styles.input}
+                accessibilityLabel="Seçili güne yeni görev"
                 value={newTask}
                 onChangeText={setNewTask}
-                placeholder={`Bu güne görev ekle (${projects[0]?.name ?? ''})`}
+                placeholder="Bu güne görev ekle"
                 placeholderTextColor={L.tertiary}
                 onSubmitEditing={submitTask}
                 returnKeyType="done"
                 maxLength={80}
               />
               <Pressable
-                style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Görev ekle"
+                disabled={!newTask.trim()}
+                accessibilityState={{ disabled: !newTask.trim() }}
+                style={({ pressed }) => [styles.addButton, !newTask.trim() && { backgroundColor: L.borderActive }, pressed && styles.addButtonPressed]}
                 onPress={submitTask}
               >
                 <Feather name="plus" size={20} color="#FFFFFF" />
               </Pressable>
-            </View>
+            </View>}
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      <PickerSheet
+        visible={dateTaskId != null}
+        title="Görevi başka güne taşı"
+        options={dateOptions}
+        selectedKey={tasks.find((t) => t.id === dateTaskId)?.dueDate ?? '__none__'}
+        onSelect={(key) => {
+          if (dateTaskId) updateTask(dateTaskId, { dueDate: key === '__none__' ? null : key });
+        }}
+        onClose={() => setDateTaskId(null)}
+      />
+      <PickerSheet
+        visible={projectPickerOpen}
+        title="Görev hangi projeye eklensin?"
+        options={projectOptions}
+        selectedKey={targetProject?.id ?? ''}
+        onSelect={(key) => setTargetProjectId(key)}
+        onClose={() => setProjectPickerOpen(false)}
+      />
     </View>
   );
 }
@@ -336,7 +429,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 14,
-    maxWidth: 560,
+    maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
   },
@@ -547,6 +640,26 @@ const styles = StyleSheet.create({
   taskProject: {
     color: L.ink2,
     fontFamily: F.ui,
+    fontSize: 12,
+  },
+  chipPressed: {
+    backgroundColor: L.pressed,
+  },
+  targetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 8,
+    height: 32,
+    paddingHorizontal: 10,
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.border,
+    borderRadius: R.md,
+  },
+  targetChipText: {
+    color: L.ink,
+    fontFamily: F.uiMed,
     fontSize: 12,
   },
   addRow: {

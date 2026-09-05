@@ -1,31 +1,33 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useSessions } from '@/features/sessions/sessions-context';
 import { taskPathLabel, useProjects } from '@/features/projects/projects-context';
-import { formatClock, formatDate, formatDuration, formatTime } from '@/features/timer/format';
+import { formatClock, formatDate, formatDuration, formatTime, startOfToday } from '@/features/timer/format';
 import { DISPLAY_SIZE_SCALE, PHASE_LABELS, PHASE_ORDER } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
 import { useTimer } from '@/features/timer/timer-context';
 import {
-  Button,
-  HeaderIconButton,
-  PickerSheet,
-  ScreenHeader,
-  type PickerOption,
-} from '@/features/ui/components';
-import { F, L } from '@/features/ui/theme';
-
-const NO_PROJECT_KEY = '__none__';
-const NO_TASK_KEY = '__no_task__';
+  NO_PROJECT_KEY,
+  NO_TASK_KEY,
+  useSelectionPickers,
+} from '@/features/timer/use-selection-pickers';
+import { Button, HeaderIconButton, PickerSheet, ScreenHeader, ScreenIntro } from '@/features/ui/components';
+import { confirmAction } from '@/features/ui/dialogs';
+import { F, L, R } from '@/features/ui/theme';
 
 export default function TimerTabScreen() {
   const router = useRouter();
   const timer = useTimer();
   const { settings } = useTimerSettings();
   const { projects, tasks } = useProjects();
+  const { sessions } = useSessions();
+  const todaySessions = sessions.filter((s) => s.startedAt >= startOfToday().getTime());
+  const todaySeconds = todaySessions.reduce((sum, s) => sum + s.workSeconds, 0);
+  const todayRounds = todaySessions.reduce((sum, s) => sum + s.completedRounds, 0);
   const { width, height } = useWindowDimensions();
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
@@ -55,55 +57,31 @@ export default function TimerTabScreen() {
   const topLabel = (() => {
     if (idle) return 'Hazır';
     if (waiting) return 'Nefes bitti';
+    if (timer.status === 'paused') return `${PHASE_LABELS[timer.phase]} · duraklatıldı`;
     return PHASE_LABELS[timer.phase];
   })();
 
-  // Proje seçici: üst projeler + altında girintili alt projeler + "Projesiz".
-  const projectOptions: PickerOption[] = useMemo(() => {
-    const options: PickerOption[] = [{ key: NO_PROJECT_KEY, label: 'Projesiz' }];
-    for (const parent of projects.filter((p) => !p.parentId)) {
-      options.push({ key: parent.id, label: parent.name, color: parent.color });
-      for (const child of projects.filter((p) => p.parentId === parent.id)) {
-        options.push({ key: child.id, label: child.name, color: child.color, indent: true });
-      }
-    }
-    return options;
-  }, [projects]);
+  const { projectOptions, taskOptions, pendingProject, pendingTask, projectTasks, selectProject, selectTask } =
+    useSelectionPickers();
+
+  // Bitir geri alınamaz (oturum kaydedilir) — onay istenir. Odak fazında
+  // bitirmek o turu kaybettireceği için ayrıca uyarılır.
+  const confirmFinish = () => {
+    const losesRound = timer.status !== 'idle' && timer.phase === 'focus';
+    confirmAction({
+      title: 'Çalışmayı bitir',
+      message: losesRound
+        ? `Odak fazındasın: bu tur sayılmayacak. ${timer.completedRounds} tamamlanmış tur kaydedilecek.`
+        : `${timer.completedRounds} tur kaydedilecek.`,
+      confirmLabel: 'Bitir',
+      onConfirm: timer.finish,
+    });
+  };
 
   const findProject = (id: string | null) => projects.find((p) => p.id === id) ?? null;
-  const pendingProject = findProject(timer.pendingProjectId);
   const lockedProject = findProject(timer.sessionProjectId);
   const lastSavedProject = timer.lastSaved ? findProject(timer.lastSaved.projectId) : null;
 
-  // Görev seçici: seçili projenin tamamlanmamış görevleri; alt görevler girintili.
-  const projectTasks = useMemo(
-    () =>
-      pendingProject
-        ? tasks
-            .filter((t) => t.projectId === pendingProject.id && !t.done)
-            .sort((a, b) => a.orderIndex - b.orderIndex)
-        : [],
-    [tasks, pendingProject],
-  );
-  const taskOptions: PickerOption[] = useMemo(() => {
-    const options: PickerOption[] = [{ key: NO_TASK_KEY, label: 'Görevsiz' }];
-    const ids = new Set(projectTasks.map((t) => t.id));
-    const tops = projectTasks.filter((t) => !t.parentTaskId || !ids.has(t.parentTaskId));
-    for (const top of tops) {
-      options.push({ key: top.id, label: top.title });
-      const stack = [top.id];
-      while (stack.length > 0) {
-        const parentId = stack.pop()!;
-        for (const child of projectTasks.filter((t) => t.parentTaskId === parentId)) {
-          options.push({ key: child.id, label: child.title, indent: true });
-          stack.push(child.id);
-        }
-      }
-    }
-    return options;
-  }, [projectTasks]);
-
-  const pendingTask = projectTasks.find((t) => t.id === timer.pendingTaskId) ?? null;
   const lockedTaskLabel = timer.sessionTaskId ? taskPathLabel(tasks, timer.sessionTaskId) : null;
   const lastSavedTaskLabel = timer.lastSaved?.taskId
     ? taskPathLabel(tasks, timer.lastSaved.taskId)
@@ -114,9 +92,12 @@ export default function TimerTabScreen() {
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScreenHeader
           title="Zamanlayıcı"
+          subtitle="Bir seferde tek işe odaklan"
           right={<HeaderIconButton icon="maximize" onPress={() => router.push('/timer')} />}
         />
 
+        <ScrollView contentContainerStyle={styles.page}>
+          <ScreenIntro eyebrow="ODAK ZAMANI" title={idle ? 'Şimdi, kendine zaman ayır.' : 'Ritmini koru.'} description={idle ? 'Bir proje seç, dikkatini topla ve ilk adımı at.' : 'Küçük adımlar birikir. Şu an yalnızca yaptığın işe odaklan.'} />
         <Pressable
           style={styles.body}
           onPress={() => timer.alarmActive && timer.acknowledgeAlarm()}
@@ -143,14 +124,10 @@ export default function TimerTabScreen() {
             {/* Turdaki üç faz: hangisinde olunduğu tek bakışta görünür. */}
             <View style={styles.dots}>
               {PHASE_ORDER.map((p) => (
-                <View
-                  key={p}
-                  style={[
-                    styles.dot,
-                    p === 'breathe' && styles.dotBreathe,
-                    !idle && p === timer.phase && styles.dotActive,
-                  ]}
-                />
+                <View key={p} style={[styles.phaseChip, (idle ? p === 'focus' : p === timer.phase) && styles.phaseChipActive]}>
+                  <View style={[styles.dot, (idle ? p === 'focus' : p === timer.phase) && styles.dotActive]} />
+                  <Text style={[styles.phaseChipText, (idle ? p === 'focus' : p === timer.phase) && { color: L.accent }]}>{PHASE_LABELS[p]}</Text>
+                </View>
               ))}
             </View>
             {!idle && (
@@ -186,6 +163,23 @@ export default function TimerTabScreen() {
           </View>
 
           <View style={styles.controls}>
+            {/* Boşta planlı başlangıç; oturumda nefeslerden düşülen borç ve
+                bildirim izni uyarısı — tam ekranla aynı bilgiler. */}
+            {idle && settings.plannedStartTime && (
+              <Text style={styles.infoLine} maxFontSizeMultiplier={1.2}>
+                Planlı başlangıç: {settings.plannedStartTime}
+              </Text>
+            )}
+            {!idle && timer.breatheDebtAppliedMs > 0 && (
+              <Text style={styles.infoLine} maxFontSizeMultiplier={1.2}>
+                Nefeslerden düşüldü: {Math.max(1, Math.round(timer.breatheDebtAppliedMs / 60_000))} dk
+              </Text>
+            )}
+            {!idle && timer.notificationsGranted === false && (
+              <Text style={styles.warnLine} maxFontSizeMultiplier={1.2}>
+                Bildirim izni yok — arka planda alarm çalmaz
+              </Text>
+            )}
             {timer.alarmActive && (
               <View style={styles.hintRow}>
                 <Feather name="bell-off" size={15} color={L.warning} />
@@ -199,7 +193,8 @@ export default function TimerTabScreen() {
               <>
                 {timer.lastSaved && (
                   <Text style={styles.savedLine} maxFontSizeMultiplier={1.2}>
-                    Kaydedildi: {lastSavedProject ? lastSavedProject.name : 'Projesiz'}
+                    {timer.lastSaved.recovered ? 'Kurtarıldı' : 'Kaydedildi'}:{' '}
+                    {lastSavedProject ? lastSavedProject.name : 'Projesiz'}
                     {lastSavedTaskLabel ? ` · ${lastSavedTaskLabel}` : ''} ·{' '}
                     {formatDuration(timer.lastSaved.workSeconds)} ·{' '}
                     {timer.lastSaved.completedRounds} tur
@@ -216,28 +211,41 @@ export default function TimerTabScreen() {
                     <Feather name="folder" size={14} color={L.ink2} />
                   )}
                   <Text style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
-                    {pendingProject ? pendingProject.name : 'Projesiz'}
+                    {pendingProject ? pendingProject.name : 'Proje seç (isteğe bağlı)'}
                   </Text>
                   <Feather name="chevron-down" size={15} color={L.tertiary} />
                 </Pressable>
-                {/* Görev seçimi — projenin açık görevi varsa */}
-                {pendingProject && projectTasks.length > 0 && (
-                  <Pressable
-                    style={({ pressed }) => [styles.projectChip, pressed && styles.chipPressed]}
-                    onPress={() => setTaskPickerOpen(true)}
-                  >
-                    <Feather name="check-square" size={14} color={L.ink2} />
-                    <Text style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
-                      {pendingTask ? pendingTask.title : 'Görevsiz'}
-                    </Text>
-                    <Feather name="chevron-down" size={15} color={L.tertiary} />
-                  </Pressable>
-                )}
+                {/* Görev seçimi. Proje seçiliyken HER ZAMAN görünür: açık görev
+                    yoksa görev eklemeye yönlendirir, böylece 'göreve çalışma'
+                    akışı ana ekranda gizli kalmaz. */}
+                {pendingProject &&
+                  (projectTasks.length > 0 ? (
+                    <Pressable
+                      style={({ pressed }) => [styles.projectChip, pressed && styles.chipPressed]}
+                      onPress={() => setTaskPickerOpen(true)}
+                    >
+                      <Feather name="check-square" size={14} color={L.ink2} />
+                      <Text style={styles.projectChipText} maxFontSizeMultiplier={1.2}>
+                        {pendingTask ? pendingTask.title : 'Görevsiz'}
+                      </Text>
+                      <Feather name="chevron-down" size={15} color={L.tertiary} />
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={({ pressed }) => [styles.projectChip, pressed && styles.chipPressed]}
+                      onPress={() => router.push(`/project/${pendingProject.id}`)}
+                    >
+                      <Feather name="plus-circle" size={14} color={L.tertiary} />
+                      <Text style={[styles.projectChipText, styles.chipMuted]} maxFontSizeMultiplier={1.2}>
+                        Görev ekle
+                      </Text>
+                    </Pressable>
+                  ))}
                 <Text style={styles.presetCaption} maxFontSizeMultiplier={1.2}>
                   {timer.pendingPresetName} · {timer.pendingPreset.focusMinutes}+
                   {timer.pendingPreset.reviewMinutes}+{timer.pendingPreset.breatheMinutes} dk
                 </Text>
-                <Button icon="play" label="Başlat" onPress={timer.start} variant="primary" />
+                <Button icon="play" label="Odaklanmaya başla" onPress={timer.start} variant="primary" />
               </>
             )}
 
@@ -258,11 +266,19 @@ export default function TimerTabScreen() {
                 {timer.status === 'paused' && (
                   <Button icon="play" label="Devam" onPress={timer.resume} variant="primary" />
                 )}
-                <Button icon="square" label="Bitir" onPress={timer.finish} />
+                <Button icon="square" label="Bitir" onPress={confirmFinish} />
               </View>
             )}
           </View>
         </Pressable>
+          <View style={styles.summary}>
+            {[{ icon: 'clock' as const, value: formatDuration(todaySeconds), label: 'Bugünkü odak' }, { icon: 'check-circle' as const, value: String(todayRounds), label: 'Tamamlanan tur' }, { icon: 'layers' as const, value: String(todaySessions.length), label: 'Oturum' }].map((item) => <View key={item.label} style={styles.summaryItem}>
+              <Feather name={item.icon} size={17} color={L.accent} />
+              <Text style={styles.summaryValue}>{item.value}</Text>
+              <Text style={styles.summaryLabel}>{item.label}</Text>
+            </View>)}
+          </View>
+        </ScrollView>
       </SafeAreaView>
 
       <PickerSheet
@@ -270,7 +286,7 @@ export default function TimerTabScreen() {
         title="Proje seç"
         options={projectOptions}
         selectedKey={timer.pendingProjectId ?? NO_PROJECT_KEY}
-        onSelect={(key) => timer.setPendingProject(key === NO_PROJECT_KEY ? null : key)}
+        onSelect={selectProject}
         onClose={() => setProjectPickerOpen(false)}
       />
       <PickerSheet
@@ -278,7 +294,7 @@ export default function TimerTabScreen() {
         title="Görev seç"
         options={taskOptions}
         selectedKey={pendingTask?.id ?? NO_TASK_KEY}
-        onSelect={(key) => timer.setPendingTask(key === NO_TASK_KEY ? null : key)}
+        onSelect={selectTask}
         onClose={() => setTaskPickerOpen(false)}
       />
     </View>
@@ -293,11 +309,24 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  page: { width: '100%', maxWidth: 720, alignSelf: 'center', padding: 20, paddingBottom: 32, gap: 20 },
+  phaseChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: R.md, backgroundColor: L.canvas },
+  phaseChipActive: { backgroundColor: L.selected },
+  phaseChipText: { fontFamily: F.uiMed, fontSize: 11, color: L.tertiary },
+  summary: { flexDirection: 'row', gap: 10 },
+  summaryItem: { flex: 1, alignItems: 'center', gap: 8, paddingVertical: 18, paddingHorizontal: 6, borderRadius: R.lg, backgroundColor: L.surface, borderWidth: 1, borderColor: L.hairline },
+  summaryValue: { fontFamily: F.uiSemi, fontSize: 20, color: L.ink },
+  summaryLabel: { fontFamily: F.ui, fontSize: 11, color: L.tertiary, textAlign: 'center' },
   body: {
-    flex: 1,
+    backgroundColor: L.surface,
+    borderWidth: 1,
+    borderColor: L.hairline,
+    borderRadius: 24,
+    gap: 28,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    justifyContent: 'space-evenly',
-    paddingVertical: 12,
+    justifyContent: 'center',
+    paddingVertical: 28,
   },
   topGroup: {
     alignItems: 'center',
@@ -338,7 +367,7 @@ const styles = StyleSheet.create({
   dot: {
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: R.md,
     backgroundColor: L.hairline,
   },
   dotBreathe: {
@@ -356,7 +385,7 @@ const styles = StyleSheet.create({
   },
   time: {
     color: L.ink,
-    fontFamily: F.monoMed,
+    fontFamily: F.mono,
     fontVariant: ['tabular-nums'],
     paddingHorizontal: 16,
   },
@@ -373,6 +402,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   controls: {
+    width: '100%',
+    maxWidth: 360,
     alignItems: 'center',
     gap: 12,
     minHeight: 132,
@@ -382,20 +413,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    height: 36,
+    minHeight: 44,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     backgroundColor: L.surface,
     borderWidth: 1,
     borderColor: L.border,
-    borderRadius: 4,
+    borderRadius: R.md,
   },
   chipPressed: {
     backgroundColor: L.pressed,
   },
   projectChipText: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 13,
+  },
+  chipMuted: {
+    color: L.tertiary,
   },
   projectDot: {
     width: 10,
@@ -414,6 +450,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 16,
   },
+  infoLine: {
+    color: L.tertiary,
+    fontFamily: F.ui,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  warnLine: {
+    color: L.warning,
+    fontFamily: F.uiMed,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
   hintRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -426,6 +476,8 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: 12,
   },
 });

@@ -25,6 +25,16 @@ export default function ProjectNotesScreen() {
   const [body, setBody] = useState(project?.noteBody ?? '');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Taslak, proje kimliği değiştiğinde tazelenir: ekran veri gelmeden monte
+  // olsa bile boş taslak kaydedilip notun üzerine yazılmasın.
+  const projectId = project?.id;
+  const savedNote = project?.noteBody ?? '';
+  const [draftProjectId, setDraftProjectId] = useState(projectId);
+  if (draftProjectId !== projectId) {
+    setDraftProjectId(projectId);
+    setBody(savedNote);
+  }
+
   // Yazarken 500 ms'de bir otomatik kaydet; çıkarken son halini yaz.
   const onChange = (text: string) => {
     setBody(text);
@@ -41,7 +51,10 @@ export default function ProjectNotesScreen() {
   }, []);
 
   const goBack = () => {
-    if (project) setProjectNote(project.id, body);
+    // DataGate veriler yüklenmeden editörü açmaz; boş not da geçerli bir düzenlemedir.
+    if (project) {
+      setProjectNote(project.id, body);
+    }
     router.back();
   };
 
