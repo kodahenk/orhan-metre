@@ -1,10 +1,10 @@
+import { FormScrollView } from '@/features/ui/form-scroll-view';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   AppState,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -107,7 +107,7 @@ export default function SettingsScreen() {
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScreenHeader title="Ayarlar" subtitle="Sana uyum sağlayan bir çalışma ritmi" />
-        <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+        <FormScrollView style={styles.flex} contentContainerStyle={styles.content}>
           <ScreenIntro eyebrow="TERCİHLERİN" title="Kendi ritmini bul." description="Odak sürelerini, molalarını ve bildirimlerini çalışma alışkanlığına göre düzenle." />
           {/* Önayarlar */}
           <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.3}>
@@ -419,7 +419,7 @@ export default function SettingsScreen() {
           <Text style={styles.footnote} maxFontSizeMultiplier={1.3}>
             Değişiklikler bir sonraki oturumda geçerli olur.
           </Text>
-        </ScrollView>
+        </FormScrollView>
       </SafeAreaView>
     </View>
   );

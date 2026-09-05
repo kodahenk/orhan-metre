@@ -1,12 +1,12 @@
+import { Pagination, TaskFilters, useTaskCollection } from '@/features/ui/collection';
+import { groupBy, pageWindow } from '@/features/ui/collection-utils';
+import { FormScrollView } from '@/features/ui/form-scroll-view';
+import { FormSheet } from '@/features/ui/form-sheet';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -95,10 +95,15 @@ export default function ProjectDetailScreen() {
         .sort((a, b) => a.orderIndex - b.orderIndex),
     [tasks, id],
   );
+  const taskChildren = useMemo(() => groupBy(tasks, (t) => t.parentTaskId), [tasks]);
   const childTaskCount = (taskId: string) => {
-    const kids = tasks.filter((t) => t.parentTaskId === taskId);
+    const kids = taskChildren.get(taskId) ?? [];
     return { done: kids.filter((t) => t.done).length, total: kids.length };
   };
+
+  const taskList = useTaskCollection(topTasks, id);
+  const [childPage, setChildPage] = useState(0);
+  const childWindow = pageWindow(children.length, childPage);
 
   if (!project) {
     return (
@@ -252,11 +257,8 @@ export default function ProjectDetailScreen() {
           </Pressable>
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
+        <View style={styles.flex}>
+          <FormScrollView
             style={styles.flex}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
@@ -361,7 +363,7 @@ export default function ProjectDetailScreen() {
                 </Text>
                 {children.length > 0 && (
                   <View style={styles.card}>
-                    {children.map((child, i) => {
+                    {children.slice(childWindow.start, childWindow.end).map((child, i) => {
                       const childSeconds = sessions
                         .filter((s) => s.projectId === child.id)
                         .reduce((sum, s) => sum + s.workSeconds, 0);
@@ -388,23 +390,23 @@ export default function ProjectDetailScreen() {
                             <Pressable
                               hitSlop={6}
                               onPress={() => moveProject(child.id, -1)}
-                              disabled={i === 0}
+                              disabled={children[0]?.id === child.id}
                             >
                               <Feather
                                 name="chevron-up"
                                 size={16}
-                                color={i === 0 ? L.hairline : L.tertiary}
+                                color={children[0]?.id === child.id ? L.hairline : L.tertiary}
                               />
                             </Pressable>
                             <Pressable
                               hitSlop={6}
                               onPress={() => moveProject(child.id, 1)}
-                              disabled={i === children.length - 1}
+                              disabled={children[children.length - 1]?.id === child.id}
                             >
                               <Feather
                                 name="chevron-down"
                                 size={16}
-                                color={i === children.length - 1 ? L.hairline : L.tertiary}
+                                color={children[children.length - 1]?.id === child.id ? L.hairline : L.tertiary}
                               />
                             </Pressable>
                           </View>
@@ -414,6 +416,7 @@ export default function ProjectDetailScreen() {
                     })}
                   </View>
                 )}
+                <Pagination total={children.length} page={childWindow.page} onChange={setChildPage} />
                 <View style={styles.addRow}>
                   <TextInput
                     style={[styles.input, styles.inputSmall]}
@@ -455,13 +458,16 @@ export default function ProjectDetailScreen() {
                 maxLength={80}
               />
               <Pressable
-                style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+                accessibilityRole="button" accessibilityLabel="Görev ekle" disabled={!newTask.trim()} accessibilityState={{ disabled: !newTask.trim() }}
+                style={({ pressed }) => [styles.addButton, !newTask.trim() && { opacity: 0.4 }, pressed && styles.addButtonPressed]}
                 onPress={submitTask}
               >
                 <Feather name="plus" size={20} color="#FFFFFF" />
               </Pressable>
             </View>
 
+            {topTasks.length > 0 && <TaskFilters collection={taskList} />}
+            {topTasks.length > 0 && taskList.total === 0 && <Text style={styles.emptyText}>Bu filtrelerle eşleşen görev yok.</Text>}
             {topTasks.length === 0 && (
               <Text style={styles.emptyText} maxFontSizeMultiplier={1.3}>
                 Henüz görev yok.
@@ -470,7 +476,7 @@ export default function ProjectDetailScreen() {
 
             {topTasks.length > 0 && (
               <View style={styles.card}>
-                {topTasks.map((task, i) => {
+                {taskList.items.map((task, i) => {
                   const due = dueLabel(task.dueDate);
                   const kids = childTaskCount(task.id);
                   return (
@@ -489,6 +495,7 @@ export default function ProjectDetailScreen() {
                         delayLongPress={400}
                       >
                         <Text
+                          numberOfLines={2}
                           style={[styles.taskTitle, task.done && styles.taskTitleDone]}
                           maxFontSizeMultiplier={1.3}
                         >
@@ -525,23 +532,23 @@ export default function ProjectDetailScreen() {
                         <Pressable
                           hitSlop={6}
                           onPress={() => moveTaskOrder(task.id, -1)}
-                          disabled={i === 0}
+                          disabled={topTasks[0]?.id === task.id}
                         >
                           <Feather
                             name="chevron-up"
                             size={16}
-                            color={i === 0 ? L.hairline : L.tertiary}
+                            color={topTasks[0]?.id === task.id ? L.hairline : L.tertiary}
                           />
                         </Pressable>
                         <Pressable
                           hitSlop={6}
                           onPress={() => moveTaskOrder(task.id, 1)}
-                          disabled={i === topTasks.length - 1}
+                          disabled={topTasks[topTasks.length - 1]?.id === task.id}
                         >
                           <Feather
                             name="chevron-down"
                             size={16}
-                            color={i === topTasks.length - 1 ? L.hairline : L.tertiary}
+                            color={topTasks[topTasks.length - 1]?.id === task.id ? L.hairline : L.tertiary}
                           />
                         </Pressable>
                       </View>
@@ -551,8 +558,9 @@ export default function ProjectDetailScreen() {
                 })}
               </View>
             )}
-          </ScrollView>
-        </KeyboardAvoidingView>
+            <Pagination total={taskList.total} page={taskList.page} onChange={taskList.setPage} />
+          </FormScrollView>
+        </View>
       </SafeAreaView>
 
       {/* Önayar seçici */}
@@ -568,17 +576,8 @@ export default function ProjectDetailScreen() {
       />
 
       {/* Hedef düzenleyici */}
-      <Modal
-        visible={goalModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setGoalModalOpen(false)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setGoalModalOpen(false)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <Text style={styles.modalTitle} maxFontSizeMultiplier={1.2}>
-              ÇALIŞMA HEDEFİ
-            </Text>
+      <FormSheet visible={goalModalOpen} title="Proje hedefi" onClose={() => setGoalModalOpen(false)}>
+
 
             <Text style={styles.fieldLabel} maxFontSizeMultiplier={1.2}>
               Ölçüt
@@ -670,9 +669,7 @@ export default function ProjectDetailScreen() {
                 </Text>
               </Pressable>
             </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      </FormSheet>
     </View>
   );
 }
@@ -680,13 +677,16 @@ export default function ProjectDetailScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   header: {
     flexDirection: 'row',
@@ -710,10 +710,12 @@ const styles = StyleSheet.create({
   },
   headerCenter: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     gap: 2,
   },
   breadcrumb: {
+    flexShrink: 1,
     color: L.tertiary,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -728,6 +730,7 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
   headerTitle: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiSemi,
     fontSize: 17,
@@ -738,9 +741,10 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   content: {
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingBottom: 32,
+    gap: 14,
     maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
@@ -751,10 +755,12 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   chip: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 28,
+    minHeight: 44,
+    paddingVertical: 8,
     paddingHorizontal: 10,
     backgroundColor: L.surface,
     borderWidth: 1,
@@ -769,6 +775,7 @@ const styles = StyleSheet.create({
     backgroundColor: L.pressed,
   },
   chipText: {
+    flexShrink: 1,
     color: L.ink2,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -836,6 +843,7 @@ const styles = StyleSheet.create({
   },
   notePreview: {
     flex: 1,
+    minWidth: 0,
     color: L.ink2,
     fontFamily: F.ui,
     fontSize: 13,
@@ -868,11 +876,13 @@ const styles = StyleSheet.create({
   },
   childName: {
     flex: 1,
+    minWidth: 0,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 14,
   },
   childMeta: {
+    flexShrink: 1,
     color: L.tertiary,
     fontFamily: F.ui,
     fontSize: 12,
@@ -883,6 +893,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    minWidth: 0,
     height: 42,
     color: L.ink,
     fontFamily: F.ui,
@@ -946,6 +957,7 @@ const styles = StyleSheet.create({
   },
   taskBody: {
     flex: 1,
+    minWidth: 0,
   },
   taskTitle: {
     color: L.ink,
@@ -963,6 +975,7 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   taskMetaRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -985,6 +998,7 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: 'rgba(0,0,0,0.35)',
     justifyContent: 'center',
     padding: 24,
@@ -1019,6 +1033,7 @@ const styles = StyleSheet.create({
   },
   segmentItem: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },

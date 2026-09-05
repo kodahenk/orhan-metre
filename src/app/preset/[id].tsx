@@ -1,11 +1,9 @@
+import { FormScrollView } from '@/features/ui/form-scroll-view';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -142,11 +140,8 @@ export default function PresetEditorScreen() {
           </Pressable>
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
+        <View style={styles.flex}>
+          <FormScrollView
             style={styles.flex}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
@@ -217,8 +212,8 @@ export default function PresetEditorScreen() {
                 Kaydet
               </Text>
             </Pressable>
-          </ScrollView>
-        </KeyboardAvoidingView>
+          </FormScrollView>
+        </View>
       </SafeAreaView>
     </View>
   );

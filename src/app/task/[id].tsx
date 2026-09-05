@@ -2,8 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +17,9 @@ import { addDays, dateKey, formatDate, formatDuration } from '@/features/timer/f
 import { useTimer } from '@/features/timer/timer-context';
 import { Checkbox, PickerSheet, type PickerOption } from '@/features/ui/components';
 import { confirmAction } from '@/features/ui/dialogs';
+import { Pagination, TaskFilters, useTaskCollection } from '@/features/ui/collection';
+import { groupBy } from '@/features/ui/collection-utils';
+import { FormScrollView } from '@/features/ui/form-scroll-view';
 import { F, L, R } from '@/features/ui/theme';
 
 /**
@@ -122,7 +123,8 @@ export default function TaskDetailScreen() {
       0,
     );
   }, [sessions, tasks, id]);
-  const grandChildCount = (taskId: string) => tasks.filter((t) => t.parentTaskId === taskId).length;
+  const taskChildren = useMemo(() => groupBy(tasks, (t) => t.parentTaskId), [tasks]);
+  const grandChildCount = (taskId: string) => taskChildren.get(taskId)?.length ?? 0;
 
   // Görevi başka projeye taşıma: alt ağacı da birlikte taşınır (moveTask).
   const projectOptions: PickerOption[] = useMemo(() => {
@@ -149,6 +151,8 @@ export default function TaskDetailScreen() {
     }
     return options;
   }, []);
+
+  const taskList = useTaskCollection(children, id);
 
   if (!task || !project) {
     return (
@@ -234,11 +238,8 @@ export default function TaskDetailScreen() {
           </Pressable>
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
+        <View style={styles.flex}>
+          <FormScrollView
             style={styles.flex}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
@@ -372,13 +373,16 @@ export default function TaskDetailScreen() {
                 maxLength={80}
               />
               <Pressable
-                style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+                accessibilityRole="button" accessibilityLabel="Görev ekle" disabled={!newSubtask.trim()} accessibilityState={{ disabled: !newSubtask.trim() }}
+                style={({ pressed }) => [styles.addButton, !newSubtask.trim() && { opacity: 0.4 }, pressed && styles.addButtonPressed]}
                 onPress={submitSubtask}
               >
                 <Feather name="plus" size={20} color="#FFFFFF" />
               </Pressable>
             </View>
 
+            {children.length > 0 && <TaskFilters collection={taskList} />}
+            {children.length > 0 && taskList.total === 0 && <Text style={styles.emptyText}>Bu filtrelerle eşleşen görev yok.</Text>}
             {children.length === 0 && (
               <Text style={styles.emptyText} maxFontSizeMultiplier={1.3}>
                 Alt görev yok.
@@ -387,7 +391,7 @@ export default function TaskDetailScreen() {
 
             {children.length > 0 && (
               <View style={styles.card}>
-                {children.map((child, i) => {
+                {taskList.items.map((child, i) => {
                   const grandCount = grandChildCount(child.id);
                   return (
                     <View key={child.id} style={[styles.taskRow, i > 0 && styles.rowSeparator]}>
@@ -400,6 +404,7 @@ export default function TaskDetailScreen() {
                         onPress={() => router.push(`/task/${child.id}`)}
                       >
                         <Text
+                          numberOfLines={2}
                           style={[styles.taskTitle, child.done && styles.titleDone]}
                           maxFontSizeMultiplier={1.3}
                         >
@@ -424,23 +429,23 @@ export default function TaskDetailScreen() {
                         <Pressable
                           hitSlop={6}
                           onPress={() => moveTaskOrder(child.id, -1)}
-                          disabled={i === 0}
+                          disabled={children[0]?.id === child.id}
                         >
                           <Feather
                             name="chevron-up"
                             size={16}
-                            color={i === 0 ? L.hairline : L.tertiary}
+                            color={children[0]?.id === child.id ? L.hairline : L.tertiary}
                           />
                         </Pressable>
                         <Pressable
                           hitSlop={6}
                           onPress={() => moveTaskOrder(child.id, 1)}
-                          disabled={i === children.length - 1}
+                          disabled={children[children.length - 1]?.id === child.id}
                         >
                           <Feather
                             name="chevron-down"
                             size={16}
-                            color={i === children.length - 1 ? L.hairline : L.tertiary}
+                            color={children[children.length - 1]?.id === child.id ? L.hairline : L.tertiary}
                           />
                         </Pressable>
                       </View>
@@ -450,8 +455,9 @@ export default function TaskDetailScreen() {
                 })}
               </View>
             )}
-          </ScrollView>
-        </KeyboardAvoidingView>
+            <Pagination total={taskList.total} page={taskList.page} onChange={taskList.setPage} />
+          </FormScrollView>
+        </View>
       </SafeAreaView>
 
       <PickerSheet
@@ -477,6 +483,7 @@ export default function TaskDetailScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: L.canvas,
   },
   workButton: {
@@ -497,11 +504,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   metaRow: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     alignSelf: 'flex-start',
-    height: 32,
+    minHeight: 44,
+    paddingVertical: 8,
     paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: L.border,
@@ -512,6 +521,7 @@ const styles = StyleSheet.create({
     backgroundColor: L.pressed,
   },
   metaText: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -537,9 +547,11 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   header: {
     flexDirection: 'row',
@@ -574,9 +586,10 @@ const styles = StyleSheet.create({
     maxWidth: 140,
   },
   content: {
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingBottom: 32,
+    gap: 14,
     maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
@@ -594,6 +607,7 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
+    minWidth: 0,
     color: L.ink,
     fontFamily: F.uiSemi,
     fontSize: 16,
@@ -607,11 +621,14 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   chipRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     gap: 8,
   },
   chip: {
-    height: 30,
+    maxWidth: '100%',
+    minHeight: 44,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -627,6 +644,7 @@ const styles = StyleSheet.create({
     borderColor: L.accent,
   },
   chipText: {
+    flexShrink: 1,
     color: L.ink2,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -647,6 +665,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    minWidth: 0,
     height: 42,
     color: L.ink,
     fontFamily: F.ui,
@@ -713,6 +732,7 @@ const styles = StyleSheet.create({
   },
   taskBody: {
     flex: 1,
+    minWidth: 0,
   },
   taskTitle: {
     color: L.ink,

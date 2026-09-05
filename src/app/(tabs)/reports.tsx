@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -34,6 +34,8 @@ import {
   type PickerOption,
 } from '@/features/ui/components';
 import { confirmAction } from '@/features/ui/dialogs';
+import { Pagination, SearchField } from '@/features/ui/collection';
+import { groupBy, pageWindow, searchText } from '@/features/ui/collection-utils';
 import { F, L, R } from '@/features/ui/theme';
 
 const CHART_HEIGHT = 120;
@@ -73,6 +75,10 @@ export default function ReportsScreen() {
   // Rapor filtresi: yalnız seçili projenin (ve alt projelerinin) kayıtları.
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const deferredHistoryQuery = useDeferredValue(historyQuery);
+  const [projectPage, setProjectPage] = useState(0);
+  const [goalPage, setGoalPage] = useState(0);
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
@@ -175,10 +181,10 @@ export default function ReportsScreen() {
     }
     type Row = { project: Project | null; seconds: number; children: { project: Project; seconds: number }[] };
     const rows: Row[] = [];
+    const projectChildren = groupBy(projects, (p) => p.parentId);
     for (const parent of projects.filter((p) => !p.parentId)) {
       const own = perProject.get(parent.id) ?? 0;
-      const children = projects
-        .filter((p) => p.parentId === parent.id)
+      const children = (projectChildren.get(parent.id) ?? [])
         .map((child) => ({ project: child, seconds: perProject.get(child.id) ?? 0 }))
         .filter((c) => c.seconds > 0);
       const total = own + children.reduce((sum, c) => sum + c.seconds, 0);
@@ -215,9 +221,18 @@ export default function ReportsScreen() {
 
   // Geçmiş: en yeni önce, güne gruplu. Varsayılan 20 kayıt; "daha fazla" ile
   // sayfa sayfa açılır — eski kayıtlar erişilemez (ve silinemez) kalmasın.
-  const [historyLimit, setHistoryLimit] = useState(20);
+  const [historyPage, setHistoryPage] = useState(0);
+  const searchableHistory = useMemo(() => {
+    const needle = searchText(deferredHistoryQuery);
+    const taskById = new Map(tasks.map((task) => [task.id, task]));
+    return sessions.filter((session) => !needle || searchText(`${projectById.get(session.projectId ?? '')?.name ?? 'Projesiz'} ${taskById.get(session.taskId ?? '')?.title ?? ''} ${dateKey(new Date(session.startedAt))}`).includes(needle))
+      .sort((a, b) => b.startedAt - a.startedAt);
+  }, [sessions, deferredHistoryQuery, tasks, projectById]);
+  const historyWindow = pageWindow(searchableHistory.length, historyPage, 20);
+  const projectWindow = pageWindow(weekByProject.rows.length, projectPage, 10);
+  const goalWindow = pageWindow(goalRows.length, goalPage, 10);
   const history = useMemo(() => {
-    const recent = [...sessions].sort((a, b) => b.startedAt - a.startedAt).slice(0, historyLimit);
+    const recent = searchableHistory.slice(historyWindow.start, historyWindow.end);
     const groups: { dayKey: string; label: string; total: number; items: WorkSession[] }[] = [];
     const todayKey = dateKey(new Date());
     const yesterdayKey = dateKey(addDays(new Date(), -1));
@@ -239,7 +254,7 @@ export default function ReportsScreen() {
       group.items.push(s);
     }
     return groups;
-  }, [sessions, historyLimit]);
+  }, [searchableHistory, historyWindow.start, historyWindow.end]);
 
   const clockOf = (ms: number) => {
     const d = new Date(ms);
@@ -350,14 +365,14 @@ export default function ReportsScreen() {
                     Bu hafta kayıt yok.
                   </Text>
                 )}
-                {weekByProject.rows.map((row, i) => {
+                {weekByProject.rows.slice(projectWindow.start, projectWindow.end).map((row, i) => {
                   const pct = Math.round((row.seconds / weekByProject.weekTotal) * 100);
                   const color = row.project?.color ?? L.tertiary;
                   return (
                     <View key={row.project?.id ?? 'none'} style={i > 0 && styles.projectGap}>
                       <View style={styles.projectRow}>
                         <View style={[styles.projectDot, { backgroundColor: color }]} />
-                        <Text style={styles.projectName} maxFontSizeMultiplier={1.2}>
+                        <Text numberOfLines={2} style={styles.projectName} maxFontSizeMultiplier={1.2}>
                           {row.project?.name ?? 'Projesiz'}
                         </Text>
                         <Text style={styles.projectDuration} maxFontSizeMultiplier={1.2}>
@@ -375,12 +390,12 @@ export default function ReportsScreen() {
                           ]}
                         />
                       </View>
-                      {row.children.map((child) => (
+                      {row.children.slice(0, 3).map((child) => (
                         <View key={child.project.id} style={styles.childRow}>
                           <View
                             style={[styles.projectDotSmall, { backgroundColor: child.project.color }]}
                           />
-                          <Text style={styles.childName} maxFontSizeMultiplier={1.2}>
+                          <Text numberOfLines={2} style={styles.childName} maxFontSizeMultiplier={1.2}>
                             {child.project.name}
                           </Text>
                           <Text style={styles.childDuration} maxFontSizeMultiplier={1.2}>
@@ -388,9 +403,11 @@ export default function ReportsScreen() {
                           </Text>
                         </View>
                       ))}
+                      {row.children.length > 3 && <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => { setFilterProjectId(row.project?.id ?? null); router.push(`/project/${row.project!.id}`); }}><Text style={styles.emptyLine}>Tüm alt projeleri gör ({row.children.length})</Text></Pressable>}
                     </View>
                   );
                 })}
+                <Pagination total={weekByProject.rows.length} page={projectWindow.page} onChange={setProjectPage} size={10} />
               </View>
 
               {/* Hedefler */}
@@ -399,7 +416,7 @@ export default function ReportsScreen() {
                   <Text style={styles.cardTitle} maxFontSizeMultiplier={1.3}>
                     HEDEFLER
                   </Text>
-                  {goalRows.map(({ project, goal, current, pct }, i) => (
+                  {goalRows.slice(goalWindow.start, goalWindow.end).map(({ project, goal, current, pct }, i) => (
                     <Pressable
                       key={project.id}
                       style={[i > 0 && styles.projectGap]}
@@ -407,7 +424,7 @@ export default function ReportsScreen() {
                     >
                       <View style={styles.projectRow}>
                         <View style={[styles.projectDot, { backgroundColor: project.color }]} />
-                        <Text style={styles.projectName} maxFontSizeMultiplier={1.2}>
+                        <Text numberOfLines={2} style={styles.projectName} maxFontSizeMultiplier={1.2}>
                           {project.name}
                         </Text>
                         <Text style={styles.goalPeriod} maxFontSizeMultiplier={1.2}>
@@ -440,6 +457,7 @@ export default function ReportsScreen() {
                       </View>
                     </Pressable>
                   ))}
+                  <Pagination total={goalRows.length} page={goalWindow.page} onChange={setGoalPage} size={10} />
                 </View>
               )}
 
@@ -448,6 +466,8 @@ export default function ReportsScreen() {
                 <Text style={styles.cardTitle} maxFontSizeMultiplier={1.3}>
                   GEÇMİŞ
                 </Text>
+                <SearchField value={historyQuery} onChangeText={(text) => { setHistoryQuery(text); setHistoryPage(0); }} placeholder="Proje, görev veya tarih ara…" />
+                {searchableHistory.length === 0 && <Text style={styles.emptyLine}>Aramanla eşleşen kayıt yok.</Text>}
                 {history.map((group) => (
                   <View key={group.dayKey} style={styles.historyGroup}>
                     <View style={styles.historyHeader}>
@@ -455,7 +475,7 @@ export default function ReportsScreen() {
                         {group.label}
                       </Text>
                       <Text style={styles.historyTotal} maxFontSizeMultiplier={1.2}>
-                        {formatDuration(group.total)}
+                        Bu sayfa: {formatDuration(group.total)}
                       </Text>
                     </View>
                     {group.items.map((s) => {
@@ -484,7 +504,7 @@ export default function ReportsScreen() {
                             ]}
                           />
                           <View style={styles.flex}>
-                            <Text style={styles.historyProject} maxFontSizeMultiplier={1.2}>
+                            <Text numberOfLines={2} style={styles.historyProject} maxFontSizeMultiplier={1.2}>
                               {project?.name ?? (deleted ? 'Silinmiş proje' : 'Projesiz')}
                               {s.status === 'abandoned' && (
                                 <Text style={styles.abandoned}>  · yarım</Text>
@@ -511,16 +531,7 @@ export default function ReportsScreen() {
                     })}
                   </View>
                 ))}
-                {sessions.length > historyLimit && (
-                  <Pressable
-                    style={({ pressed }) => [styles.moreButton, pressed && styles.pressed]}
-                    onPress={() => setHistoryLimit((n) => n + 20)}
-                  >
-                    <Text style={styles.moreButtonText} maxFontSizeMultiplier={1.2}>
-                      Daha fazla göster ({sessions.length - historyLimit} kayıt)
-                    </Text>
-                  </Pressable>
-                )}
+                <Pagination total={searchableHistory.length} page={historyWindow.page} onChange={setHistoryPage} size={20} />
                 <Text style={styles.historyHint} maxFontSizeMultiplier={1.2}>
                   Kaydı düzeltmek için satıra dokun, silmek için basılı tut.
                 </Text>
@@ -535,7 +546,7 @@ export default function ReportsScreen() {
         title="Projeye göre filtrele"
         options={filterOptions}
         selectedKey={filterProjectId ?? '__all__'}
-        onSelect={(key) => setFilterProjectId(key === '__all__' ? null : key)}
+        onSelect={(key) => { setFilterProjectId(key === '__all__' ? null : key); setHistoryPage(0); setProjectPage(0); setGoalPage(0); }}
         onClose={() => setFilterOpen(false)}
       />
 
@@ -597,13 +608,16 @@ export default function ReportsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: L.canvas,
   },
   safeArea: {
     flex: 1,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   content: {
     padding: 20,
@@ -640,11 +654,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   tileRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     gap: 12,
   },
   tile: {
     flex: 1,
+    minWidth: 130,
     backgroundColor: L.surface,
     borderWidth: 1,
     borderColor: L.hairline,
@@ -698,6 +714,7 @@ const styles = StyleSheet.create({
   },
   chartCol: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'flex-end',
     height: CHART_HEIGHT,
@@ -714,6 +731,7 @@ const styles = StyleSheet.create({
   },
   chartLabel: {
     flex: 1,
+    minWidth: 0,
     textAlign: 'center',
     color: L.tertiary,
     fontFamily: F.ui,
@@ -728,6 +746,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   projectRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -745,6 +764,7 @@ const styles = StyleSheet.create({
   },
   projectName: {
     flex: 1,
+    minWidth: 0,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 14,
@@ -758,7 +778,7 @@ const styles = StyleSheet.create({
     color: L.tertiary,
     fontFamily: F.ui,
     fontSize: 12,
-    width: 44,
+    minWidth: 44,
     textAlign: 'right',
   },
   projectTrack: {
@@ -779,6 +799,7 @@ const styles = StyleSheet.create({
   },
   childName: {
     flex: 1,
+    minWidth: 0,
     color: L.ink2,
     fontFamily: F.ui,
     fontSize: 13,
@@ -795,6 +816,7 @@ const styles = StyleSheet.create({
   },
   goalNumbers: {
     flex: 1,
+    minWidth: 0,
     color: L.ink2,
     fontFamily: F.ui,
     fontSize: 13,
@@ -807,6 +829,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   historyHeader: {
+    flexWrap: 'wrap',
+    gap: 6,
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 6,
@@ -838,11 +862,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   filterChip: {
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 8,
-    height: 32,
+    minHeight: 44,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     backgroundColor: L.surface,
     borderWidth: 1,
@@ -850,6 +876,7 @@ const styles = StyleSheet.create({
     borderRadius: R.md,
   },
   filterChipText: {
+    flexShrink: 1,
     color: L.ink,
     fontFamily: F.uiMed,
     fontSize: 12,
@@ -892,6 +919,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   historyDuration: {
+    maxWidth: '40%',
+    flexShrink: 1,
     color: L.ink2,
     fontFamily: F.uiMed,
     fontSize: 13,
