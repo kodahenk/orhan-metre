@@ -11,13 +11,13 @@ export function SectionTitle({ title, detail, right }: { title: string; detail?:
   </View>;
 }
 
-export function FieldRow({ icon, label, value, onPress }: { icon: keyof typeof Feather.glyphMap; label: string; value: string; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} onPress={onPress}
+export function FieldRow({ icon, label, value, onPress, disabled = false }: { icon: keyof typeof Feather.glyphMap; label: string; value: string; onPress: () => void; disabled?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
     style={({ pressed }) => [styles.field, pressed && { backgroundColor: L.pressed }]}>
     <Feather name={icon} size={17} color={L.tertiary} />
     <Text style={styles.label}>{label}</Text>
     <Text numberOfLines={2} style={styles.value}>{value}</Text>
-    <Feather name="chevron-right" size={16} color={L.tertiary} />
+    <Feather name={disabled ? "lock" : "chevron-right"} size={16} color={L.tertiary} />
   </Pressable>;
 }
 

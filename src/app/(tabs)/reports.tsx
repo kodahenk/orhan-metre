@@ -27,7 +27,6 @@ import {
 import {
   EmptyState,
   Button,
-  ScreenIntro,
   HeaderIconButton,
   PickerSheet,
   ScreenHeader,
@@ -115,7 +114,7 @@ export default function ReportsScreen() {
     const scope = new Set([editing.projectId]);
     for (const pr of projects) if (pr.parentId === editing.projectId) scope.add(pr.id);
     for (const t of tasks.filter((t) => scope.has(t.projectId)).sort((a, b) => a.orderIndex - b.orderIndex)) {
-      options.push({ key: t.id, label: t.title, indent: !!t.parentTaskId });
+      options.push({ key: t.id, label: t.title });
     }
     return options;
   }, [editing, tasks, projects]);
@@ -266,11 +265,9 @@ export default function ReportsScreen() {
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScreenHeader
           title="Raporlar"
-          subtitle="Emeğini görünür kılan istatistikler"
           right={<HeaderIconButton icon="share" onPress={shareReport} />}
         />
         <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
-          <ScreenIntro eyebrow="İLERLEMEN" title="Her odak anı değerli." description="Çalışma süreni, tamamladığın turları ve hedeflerine ne kadar yaklaştığını gör." />
           {/* Proje filtresi: tüm kartlar, grafik, hedefler ve geçmiş bu kapsamı izler. */}
           <Pressable
             style={({ pressed }) => [styles.filterChip, pressed && styles.pressed]}
@@ -301,7 +298,7 @@ export default function ReportsScreen() {
                     <Text style={styles.tileLabel} maxFontSizeMultiplier={1.2}>
                       {tile.label}
                     </Text>
-                    <Text style={styles.tileValue} maxFontSizeMultiplier={1.1}>
+                    <Text numberOfLines={1} adjustsFontSizeToFit style={styles.tileValue} maxFontSizeMultiplier={1.1}>
                       {formatDuration(tile.data.seconds)}
                     </Text>
                     <Text style={styles.tileMeta} maxFontSizeMultiplier={1.2}>
@@ -317,7 +314,7 @@ export default function ReportsScreen() {
               {/* Son 7 gün */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle} maxFontSizeMultiplier={1.3}>
-                  SON 7 GÜN
+                  Son 7 gün
                 </Text>
                 <Text style={styles.chartCaption} maxFontSizeMultiplier={1.2}>
                   {selectedBar != null
@@ -356,7 +353,7 @@ export default function ReportsScreen() {
               {/* Projelere göre (bu hafta) */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle} maxFontSizeMultiplier={1.3}>
-                  PROJELERE GÖRE · BU HAFTA
+                  Bu hafta · projeler
                 </Text>
                 {weekByProject.rows.length === 0 && (
                   <Text style={styles.emptyLine} maxFontSizeMultiplier={1.3}>
@@ -412,7 +409,7 @@ export default function ReportsScreen() {
               {goalRows.length > 0 && (
                 <View style={styles.card}>
                   <Text style={styles.cardTitle} maxFontSizeMultiplier={1.3}>
-                    HEDEFLER
+                    Hedefler
                   </Text>
                   {goalRows.slice(goalWindow.start, goalWindow.end).map(({ project, goal, current, pct }, i) => (
                     <Pressable
@@ -462,7 +459,7 @@ export default function ReportsScreen() {
               {/* Geçmiş */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle} maxFontSizeMultiplier={1.3}>
-                  GEÇMİŞ
+                  Çalışma geçmişi
                 </Text>
                 <SearchField value={historyQuery} onChangeText={(text) => { setHistoryQuery(text); setHistoryPage(0); }} placeholder="Proje, görev veya tarih ara…" />
                 {searchableHistory.length === 0 && <Text style={styles.emptyLine}>Aramanla eşleşen kayıt yok.</Text>}
@@ -607,7 +604,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: L.canvas,
+    backgroundColor: L.surface,
   },
   safeArea: {
     flex: 1,
@@ -618,10 +615,10 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   content: {
-    padding: 20,
-    paddingBottom: 40,
-    gap: 18,
-    maxWidth: 720,
+    padding: 12,
+    paddingBottom: 24,
+    gap: 12,
+    maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
@@ -654,11 +651,11 @@ const styles = StyleSheet.create({
   tileRow: {
     flexWrap: 'wrap',
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   tile: {
     flex: 1,
-    minWidth: 130,
+    minWidth: 80,
     backgroundColor: L.surface,
     borderWidth: 1,
     borderColor: L.hairline,
@@ -674,7 +671,7 @@ const styles = StyleSheet.create({
   tileValue: {
     color: L.ink,
     fontFamily: F.uiSemi,
-    fontSize: 20,
+    fontSize: 18,
   },
   tileMeta: {
     color: L.tertiary,
@@ -686,7 +683,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: L.hairline,
     borderRadius: R.lg,
-    padding: 16,
+    padding: 12,
   },
   cardTitle: {
     color: L.tertiary,
@@ -847,7 +844,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    minHeight: 52,
   },
   historyProject: {
     color: L.ink,

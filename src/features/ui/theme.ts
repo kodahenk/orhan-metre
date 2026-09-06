@@ -1,17 +1,17 @@
 /** Light palet — tüm normal ekranlar. */
 export const L = {
-  canvas: '#F5F7FB',
+  canvas: '#F6F7F8',
   surface: '#FFFFFF',
-  hairline: '#E5EAF2',
-  border: '#DCE3ED',
+  hairline: '#E7E9EC',
+  border: '#D9DDE2',
   borderActive: '#C9C9C9',
   pressed: '#F2F2F2',
   selected: '#F0F7FF',
-  ink: '#17243B',
-  ink2: '#526078',
-  muted: '#526078', // ink2 ile ayni — rampa disina cikilmaz,
-  tertiary: '#68768C',
-  accent: '#315FE9',
+  ink: '#20252B',
+  ink2: '#545D68',
+  muted: '#545D68', // ink2 ile ayni — rampa disina cikilmaz,
+  tertiary: '#707984',
+  accent: '#2664D9',
   accentPressed: '#254CC4',
   accentSoft: '#D3E5FF',
   success: '#18804B',
@@ -40,9 +40,9 @@ export const D = {
 
 /** Ortak kontrol ve kart köşe yarıçapları. */
 export const R = {
-  sm: 6, // onay kutuları
-  md: 10, // butonlar, girdiler, segmentler, çipler, takvim hücreleri
-  lg: 16, // kartlar
+  sm: 3, // onay kutuları
+  md: 4, // butonlar, girdiler, segmentler, çipler, takvim hücreleri
+  lg: 6, // kartlar
 } as const;
 
 export const F = {

@@ -1,9 +1,11 @@
 # Büyük veri ve ekran uyumu doğrulaması
 
+Güncel kompakt tasarım ve kontrol listesine geçiş: [tasarım notları](design/compact-mobile.md).
+
 ## Uygulanan yapı
 
 - Proje ana listesi ve ortak seçim penceresi `@shopify/flash-list` 2.0.2 kullanır. Satırlar değişken yüksekliktedir; tüm veri aynı anda oluşturulmaz.
-- Görev, alt görev ve seçili gün listeleri arama/durum filtresiyle 30 öğelik sayfalar gösterir. Rapor geçmişi 20, rapor proje/hedef ve önayar listeleri 10 öğelik sayfalar kullanır. Silme ve filtreleme sonrasında geçerli sayfa yeniden hesaplanır.
+- Görev ve seçili gün listeleri arama/durum filtresiyle 30 öğelik sayfalar gösterir. Rapor geçmişi 20, rapor proje/hedef ve önayar listeleri 10 öğelik sayfalar kullanır. Silme ve filtreleme sonrasında geçerli sayfa yeniden hesaplanır.
 - Native formlar `react-native-keyboard-controller` 1.21.9 ile odaktaki alanı klavyenin üstüne taşır. Web normal ScrollView kullanır. Modal formlarda kaydırma, kapatma düğmesi ve güvenli alan payı vardır.
 - Başlık ve meta alanları daralabilir; uzun liste başlıkları detay ekranına erişimi koruyarak iki satır gösterir. Buton ve özet grupları uygun yerlerde alt satıra geçer.
 - Editörlerin bekleyen değişiklikleri kapanışta, kayıt kimliği değiştiğinde ve uygulama arka plana geçtiğinde tamamlanır.

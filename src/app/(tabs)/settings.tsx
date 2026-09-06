@@ -29,7 +29,7 @@ import {
   type TimerDisplaySize,
 } from '@/features/timer/settings';
 import { useTimerSettings } from '@/features/timer/settings-context';
-import { ScreenIntro, ScreenHeader } from '@/features/ui/components';
+import { ScreenHeader } from '@/features/ui/components';
 import { D, F, L, R } from '@/features/ui/theme';
 
 export default function SettingsScreen() {
@@ -123,16 +123,14 @@ export default function SettingsScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <ScreenHeader title="Ayarlar" subtitle="Sana uyum sağlayan bir çalışma ritmi" />
+        <ScreenHeader title="Ayarlar" />
         <FormScrollView style={styles.flex} contentContainerStyle={styles.content}>
-          <ScreenIntro eyebrow="TERCİHLERİN" title="Kendi ritmini bul." description="Odak sürelerini, molalarını ve bildirimlerini çalışma alışkanlığına göre düzenle." />
           {/* Önayarlar */}
           <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.3}>
-            SAYAÇ ÖNAYARLARI
+            Çalışma süreleri
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
-            Radyoya dokunmak genel varsayılanı seçer; satıra dokunmak önayarı düzenler.
-            Projeler kendi önayarını proje detayından atayabilir.
+            Daireyle varsayılanı seç. Düzenlemek için adına dokun.
           </Text>
           {presets.length > 7 && <SearchField value={presetQuery} onChangeText={(text) => { setPresetQuery(text); setPresetPage(0); }} placeholder="Önayarlarda ara…" />}
           {filteredPresets.length === 0 && <Text style={styles.sectionHint}>Bu aramayla eşleşen önayar yok.</Text>}
@@ -184,7 +182,7 @@ export default function SettingsScreen() {
 
           {/* Tur geçişi */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-            TUR GEÇİŞİ
+            Tur geçişi
           </Text>
           <View style={styles.card}>
             {[
@@ -238,7 +236,7 @@ export default function SettingsScreen() {
                 style={[styles.sectionTitle, styles.sectionSpacing]}
                 maxFontSizeMultiplier={1.3}
               >
-                BİLDİRİMLER
+                Bildirimler
               </Text>
               <View style={styles.card}>
                 <Pressable
@@ -274,7 +272,7 @@ export default function SettingsScreen() {
                 style={[styles.sectionTitle, styles.sectionSpacing]}
                 maxFontSizeMultiplier={1.3}
               >
-                ARKA PLAN MİNİ SAYAÇ
+                Arka plan mini sayaç
               </Text>
               <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
                 {"Sayaç çalışırken uygulamadan çıkınca bildirim panelinde canlı geri sayım gösterilir. Ekranın sol üstünde yarı saydam mini sayaç için 'üstte gösterme' izni gerekir."}
@@ -308,7 +306,7 @@ export default function SettingsScreen() {
 
           {/* Planlı başlangıç + nefes borcu */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-            PLANLI BAŞLANGIÇ
+            Planlı başlangıç
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
             Günün ilk seansı bu saatten geç başlarsa gecikme, sonraki Nefes Al sürelerinden
@@ -349,7 +347,7 @@ export default function SettingsScreen() {
 
           {/* Faz bitiş hatırlatıcısı */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-            FAZ BİTİŞ HATIRLATICISI
+            Faz bitiş hatırlatıcısı
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
             {"Odak veya Tekrar bitmeden seçilen süre kadar önce 'bitmeye az kaldı' bildirimi gönderilir. Nefes Al'a uygulanmaz."}
@@ -377,7 +375,7 @@ export default function SettingsScreen() {
 
           {/* Görünüm */}
           <Text style={[styles.sectionTitle, styles.sectionSpacing]} maxFontSizeMultiplier={1.3}>
-            TAM EKRAN GÖRÜNÜMÜ
+            Tam ekran görünümü
           </Text>
           <Text style={styles.sectionHint} maxFontSizeMultiplier={1.3}>
             Boyut hem ana ekranda hem tam ekran zamanlayıcıda geçerlidir. Renk otomatiktir:
@@ -452,7 +450,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: L.canvas,
+    backgroundColor: L.surface,
   },
   safeArea: {
     flex: 1,
@@ -463,11 +461,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 48,
     gap: 12,
-    maxWidth: 720,
+    maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
@@ -478,7 +476,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   sectionSpacing: {
-    marginTop: 24,
+    marginTop: 16,
   },
   sectionHint: {
     color: L.ink2,
@@ -505,7 +503,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
-    minHeight: 60,
+    minHeight: 52,
     paddingVertical: 10,
   },
   presetName: {
@@ -547,7 +545,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 16,
+    padding: 12,
   },
   optionSelected: {
     backgroundColor: L.selected,
@@ -645,7 +643,7 @@ const styles = StyleSheet.create({
     height: 48,
     backgroundColor: L.accent,
     borderRadius: R.md,
-    marginTop: 24,
+    marginTop: 16,
   },
   saveButtonPressed: {
     backgroundColor: L.accentPressed,

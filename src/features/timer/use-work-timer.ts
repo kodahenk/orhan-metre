@@ -651,7 +651,7 @@ export function useWorkTimer() {
     // Görev kilidi: yalnızca kilitlenen projeye ait, hâlâ var olan ve
     // tamamlanmamış görev yazılır (kalıcı seçim bayatlamış olabilir).
     const pendingTask = pendingTaskRef.current
-      ? tasksRef.current.find((t) => t.id === pendingTaskRef.current)
+      ? tasksRef.current.find((t) => t.id === pendingTaskRef.current || t.legacyTaskIds.includes(pendingTaskRef.current ?? ''))
       : undefined;
     // Görev, seçili projeye VEYA onun bir alt projesine ait olabilir: seçici
     // alt proje görevlerini de listeliyor (raporlar da alt projeleri üst

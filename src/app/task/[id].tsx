@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useProjects } from '@/features/projects/projects-context';
 import { useSessions } from '@/features/sessions/sessions-context';
-import { formatDate, formatDuration, parseDateKey } from '@/features/timer/format';
+import { formatDate, formatDuration, formatShortDate, parseDateKey } from '@/features/timer/format';
 import { useTimer } from '@/features/timer/timer-context';
 import { Button, Checkbox, HeaderIconButton, PickerSheet, ScreenHeader } from '@/features/ui/components';
 import { AddRow, FieldRow, SectionTitle } from '@/features/ui/compact';
@@ -98,7 +98,7 @@ export default function TaskDetailScreen() {
           <Pressable style={styles.flex} accessibilityRole="button" accessibilityLabel={`${item.title}, ${item.done ? 'tamamlandı' : 'açık'}`} onPress={() => updateChecklistItem(task.id, item.id, { done: !item.done })}>
             <Text style={[styles.itemTitle, item.done && styles.done]}>{item.title}</Text>
             {!!item.note && <Text numberOfLines={1} style={styles.itemNote}>{item.note}</Text>}
-            {!!item.dueDate && <Text style={styles.itemNote}>{item.dueDate}</Text>}
+            {!!item.dueDate && <Text style={styles.itemNote}>{formatShortDate(parseDateKey(item.dueDate))}</Text>}
           </Pressable>
           <HeaderIconButton icon="more-horizontal" label={`${item.title} işlemleri`} onPress={() => setItemMenu(item.id)} />
         </View>)}

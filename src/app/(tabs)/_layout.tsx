@@ -24,9 +24,9 @@ export default function TabsLayout() {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: L.hairline,
           elevation: 0,
-          height: 66 + insets.bottom,
+          height: 56 + insets.bottom,
           paddingBottom: Math.max(insets.bottom, 8),
-          paddingTop: 10,
+          paddingTop: 6,
         },
         tabBarActiveTintColor: L.accent,
         tabBarInactiveTintColor: L.tertiary,
@@ -48,7 +48,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="index"
-        options={{ title: 'Zamanlayıcı', tabBarIcon: tabIcon('clock') }}
+        options={{ title: 'Odak', tabBarIcon: tabIcon('clock') }}
       />
       <Tabs.Screen
         name="reports"

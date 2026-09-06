@@ -82,19 +82,18 @@ export function TaskFilters({ collection }: { collection: Pick<ReturnType<typeof
           <Text style={[styles.caption, collection.status === item.key && { color: L.accent }]}>{item.label}</Text>
         </Pressable>)}
     </View>
-    <Text accessibilityLiveRegion="polite" style={styles.caption}>{collection.total} görev</Text>
   </View>;
 }
 
 const styles = StyleSheet.create({
-  search: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 14, paddingRight: 4, minHeight: 48, borderWidth: 1, borderColor: L.border, borderRadius: R.md, backgroundColor: L.surface },
-  input: { flex: 1, minWidth: 0, paddingVertical: 12, color: L.ink, fontFamily: F.ui, fontSize: 14 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 14, paddingRight: 4, minHeight: 44, borderWidth: 1, borderColor: L.border, borderRadius: R.md, backgroundColor: L.surface },
+  input: { flex: 1, minWidth: 0, paddingVertical: 10, color: L.ink, fontFamily: F.ui, fontSize: 14 },
   icon: { width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: R.md },
   pagination: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 8 },
   navigation: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   caption: { color: L.ink2, fontFamily: F.uiMed, fontSize: 12, flexShrink: 1 },
-  filters: { gap: 10 },
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  filter: { minHeight: 44, paddingHorizontal: 14, paddingVertical: 10, justifyContent: 'center', borderWidth: 1, borderColor: L.border, borderRadius: R.md, backgroundColor: L.surface },
-  selected: { borderColor: L.accent, backgroundColor: L.selected },
+  filters: { gap: 4 },
+  filterRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: L.hairline },
+  filter: { flex: 1, minHeight: 44, paddingHorizontal: 6, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  selected: { borderBottomColor: L.accent },
 });

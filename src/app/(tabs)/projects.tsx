@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProjects, type Project } from '@/features/projects/projects-context';
 import { useSessions } from '@/features/sessions/sessions-context';
 import { formatDuration, startOfWeek } from '@/features/timer/format';
-import { Button, HeaderIconButton, EmptyState, ScreenIntro, PickerSheet, ScreenHeader, type PickerOption } from '@/features/ui/components';
+import { Button, HeaderIconButton, EmptyState, PickerSheet, ScreenHeader, type PickerOption } from '@/features/ui/components';
 import { groupBy, searchText } from '@/features/ui/collection-utils';
 import { FormSheet } from '@/features/ui/form-sheet';
 import { SearchField } from '@/features/ui/collection';
@@ -48,7 +48,6 @@ export default function ProjectsScreen() {
   const taskCounts = useMemo(() => {
     const per = new Map<string, { open: number; total: number }>();
     for (const t of tasks) {
-      if (t.parentTaskId) continue; // özet yalnız üst düzey görevleri sayar
       const c = per.get(t.projectId) ?? { open: 0, total: 0 };
       c.total += 1;
       if (!t.done) c.open += 1;
@@ -161,26 +160,26 @@ export default function ProjectsScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <ScreenHeader title="Projeler" subtitle="Hedeflerin için düzenli bir çalışma alanı" right={<HeaderIconButton icon="plus" label="Yeni proje oluştur" onPress={() => setCreateOpen(true)} />} />
+        <ScreenHeader title="Projeler" right={<HeaderIconButton icon="plus" label="Yeni proje oluştur" onPress={() => setCreateOpen(true)} />} />
         <View style={styles.listContainer}>
           <FlashList data={rows} keyExtractor={(row) => row.project.id}
             maintainVisibleContentPosition={{ disabled: true }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
             renderItem={({ item, index }) => renderRow(item.project, item.isChild, index > 0)}
             ListHeaderComponent={<View style={styles.listHeader}>
-              <ScreenIntro eyebrow="ÇALIŞMA ALANIN" title="Projelerin, tek bir yerde." description={`${projects.length} proje · ${tasks.filter((t) => !t.done).length} açık görev`} />
+              <Text style={styles.metaText}>{projects.length} proje · {tasks.filter((t) => !t.done).length} açık görev</Text>
               {projects.length > 0 && <SearchField value={search} onChangeText={setSearch} placeholder="Projelerinde ara…" />}
               {!!query && <Text style={styles.metaText}>{rows.length} sonuç</Text>}
             </View>}
-            ListEmptyComponent={<EmptyState icon={query ? 'search' : 'folder-plus'} title={query ? 'Proje bulunamadı' : 'İlk projeni oluştur'}
+            ListEmptyComponent={<EmptyState icon={query ? 'search' : 'folder-plus'} title={query ? 'Sonuç yok' : 'Henüz proje yok'}
               description={query ? 'Başka bir kelime dene veya aramayı temizle.' : 'Görevlerini ve odak oturumlarını bir proje altında düzenle.'}
               action={<Button label={query ? 'Aramayı temizle' : 'Proje oluştur'} onPress={() => query ? setSearch('') : setCreateOpen(true)} />} />}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} />
+            contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24 }} />
         </View>
       </SafeAreaView>
 
       <FormSheet visible={createOpen} title="Yeni proje" onClose={() => setCreateOpen(false)}>
             <View style={styles.addCard}>
-              <Text style={{ fontFamily: F.uiSemi, fontSize: 15, color: L.ink }}>Yeni proje oluştur</Text>
+              <Text style={{ fontFamily: F.uiSemi, fontSize: 14, color: L.ink }}>Yeni proje oluştur</Text>
               <View style={styles.addRow}>
                 <TextInput
                   style={styles.input}
@@ -233,13 +232,13 @@ export default function ProjectsScreen() {
 }
 
 const styles = StyleSheet.create({
-  listContainer: { flex: 1, width: '100%', maxWidth: 760, alignSelf: 'center' },
-  listHeader: { gap: 12, paddingBottom: 16 },
+  listContainer: { flex: 1, width: '100%', maxWidth: 640, alignSelf: 'center' },
+  listHeader: { gap: 10, paddingTop: 12, paddingBottom: 10 },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, minHeight: 48, backgroundColor: L.surface, borderWidth: 1, borderColor: L.border, borderRadius: R.md },
   searchInput: { flex: 1, minWidth: 0, paddingVertical: 12, fontFamily: F.ui, fontSize: 14, color: L.ink },
   screen: {
     flex: 1,
-    backgroundColor: L.canvas,
+    backgroundColor: L.surface,
   },
   safeArea: {
     flex: 1,
@@ -252,7 +251,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 20,
     gap: 18,
-    maxWidth: 720,
+    maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
@@ -267,10 +266,10 @@ const styles = StyleSheet.create({
     backgroundColor: L.surface,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 10,
-    minHeight: 76,
-    paddingVertical: 14,
+    gap: 8,
+    paddingHorizontal: 8,
+    minHeight: 56,
+    paddingVertical: 8,
   },
   rowChild: {
     paddingLeft: 30,
@@ -302,7 +301,7 @@ const styles = StyleSheet.create({
   rowTitle: {
     color: L.ink,
     fontFamily: F.uiMed,
-    fontSize: 15,
+    fontSize: 14,
   },
   metaRow: {
     flexWrap: 'wrap',
@@ -338,7 +337,7 @@ const styles = StyleSheet.create({
     height: 48,
     color: L.ink,
     fontFamily: F.ui,
-    fontSize: 15,
+    fontSize: 14,
     backgroundColor: L.surface,
     borderWidth: 1,
     borderColor: L.border,

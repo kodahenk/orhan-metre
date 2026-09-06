@@ -10,9 +10,9 @@ import {
 } from 'react';
 
 import { migrateTaskChecklists, type Task, type ChecklistItem } from './task-model';
-export { taskPathLabel, type Task, type ChecklistItem } from './task-model';
-
 import { PROJECT_COLORS } from '@/features/ui/theme';
+
+export { taskPathLabel, type Task, type ChecklistItem } from './task-model';
 
 // Projects contain independent tasks; each task owns a flat checklist.
 

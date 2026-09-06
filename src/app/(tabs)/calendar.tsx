@@ -27,7 +27,6 @@ import {
   Button,
   EmptyState,
   HeaderIconButton,
-  ScreenIntro,
   Checkbox,
   PickerSheet,
   ScreenHeader,
@@ -60,7 +59,7 @@ export default function CalendarScreen() {
   const selected = parseDateKey(selectedKey);
   const todayKey = dateKey(new Date());
 
-  // Tarihli görevler: 'YYYY-MM-DD' → görev listesi (alt görevler dahil).
+  // Tarihli görevler: 'YYYY-MM-DD' → görev listesi (kontrol maddeleri ayrı görev değildir).
   const tasksByDate = useMemo(() => {
     const projectById = new Map(projects.map((p) => [p.id, p]));
     const map = new Map<string, DatedTask[]>();
@@ -110,7 +109,7 @@ export default function CalendarScreen() {
   const submitTask = () => {
     const title = newTask.trim();
     if (!title || !targetProject) return;
-    addTask(targetProject.id, null, title, selectedKey);
+    addTask(targetProject.id, title, selectedKey);
     setNewTask('');
   };
 
@@ -136,14 +135,13 @@ export default function CalendarScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <ScreenHeader title="Takvim" subtitle="Gününü planla, odağına yer aç" right={<HeaderIconButton icon="corner-down-left" label="Bugüne dön" onPress={() => setSelectedKey(dateKey(new Date()))} />} />
+        <ScreenHeader title="Takvim" right={<HeaderIconButton icon="corner-down-left" label="Bugüne dön" onPress={() => setSelectedKey(dateKey(new Date()))} />} />
         <View style={styles.flex}>
           <FormScrollView
             style={styles.flex}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
           >
-            <ScreenIntro eyebrow="PLANIN" title="Her güne bir adım." description="Görevlerini takvimine yerleştir ve gününü daha bilinçli planla." />
             {/* Görünüm seçici — 36dp segment, kayan yok */}
             <View style={styles.segment}>
               {MODES.map((m, i) => (
@@ -299,7 +297,7 @@ export default function CalendarScreen() {
             </Text>
 
             {dayTasks.length === 0 && (
-              <EmptyState icon="calendar" title="Bugünün planı sana ait" description={targetProject ? 'Bu tarih için henüz görev yok. Aşağıdan ilk görevini ekleyebilirsin.' : 'Takvimine görev eklemek için önce bir proje oluştur.'} action={!targetProject ? <Button label="Proje oluştur" icon="plus" variant="primary" onPress={() => router.push('/projects')} /> : undefined} />
+              <EmptyState icon="calendar" title="Planlanmış görev yok" description={targetProject ? 'Seçili güne bir görev ekle.' : 'Takvimine görev eklemek için önce bir proje oluştur.'} action={!targetProject ? <Button label="Proje oluştur" icon="plus" variant="primary" onPress={() => router.push('/projects')} /> : undefined} />
             )}
 
             {dayTasks.length > 0 && <TaskFilters collection={dayCollection} />}
@@ -402,7 +400,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: L.canvas,
+    backgroundColor: L.surface,
   },
   safeArea: {
     flex: 1,
@@ -415,7 +413,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 14,
-    maxWidth: 720,
+    maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
@@ -580,7 +578,7 @@ const styles = StyleSheet.create({
     fontFamily: F.uiSemi,
     fontSize: 13,
     letterSpacing: 0.6,
-    marginTop: 8,
+    marginTop: 4,
   },
   emptyText: {
     color: L.tertiary,

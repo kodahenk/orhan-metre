@@ -16,6 +16,11 @@ export function formatDate(d: Date) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${WEEKDAYS[d.getDay()]}`;
 }
 
+/** "9 Eylül" — liste satırlarında yer kaplamayan kısa tarih. */
+export function formatShortDate(d: Date) {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
 export function formatClock(d: Date) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
